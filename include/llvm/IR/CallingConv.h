@@ -68,6 +68,9 @@ namespace CallingConv {
     // PreserveAll - Calling convention for runtime calls that preserves
     // (almost) all registers.
     PreserveAll = 15,
+    
+    /// PML - Calling convention for Parallel ML
+    PML = 16,
 
     // Target - This is the start of the target-specific calling conventions,
     // e.g. fastcall and thiscall on X86.

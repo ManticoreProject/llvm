@@ -382,6 +382,16 @@ def CC_X86_64_GHC : CallingConv<[
             CCAssignToReg<[XMM1, XMM2, XMM3, XMM4, XMM5, XMM6]>>>
 ]>;
 
+def CC_X86_64_PML : CallingConv<[
+  // Promote i8/i16/i32 arguments to i64.
+  CCIfType<[i8, i16, i32], CCPromoteToType<i64>>,
+
+  // Pass dedicated registers:
+  // argument, closure, return cont, ex-handler cont, alloc ptr, vproc ptr
+  CCIfType<[i64],
+  CCAssignToReg<[RAX, RDI, R8, R9, RSI, R11]>>
+]>;
+
 def CC_X86_64_HiPE : CallingConv<[
   // Promote i8/i16/i32 arguments to i64.
   CCIfType<[i8, i16, i32], CCPromoteToType<i64>>,
@@ -591,6 +601,16 @@ def CC_X86_32_GHC : CallingConv<[
   CCIfType<[i32], CCAssignToReg<[EBX, EBP, EDI, ESI]>>
 ]>;
 
+def CC_X86_32_PML : CallingConv<[
+  // Promote i8/i16 arguments to i32.
+  CCIfType<[i8, i16], CCPromoteToType<i32>>,
+
+  // Pass dedicated registers:
+  // argument, closure, return cont, ex-handler cont, alloc ptr, vproc ptr
+  CCIfType<[i32],
+  CCAssignToReg<[EAX, EDI, EBX, ECX, ESI, EDX]>>
+]>;
+
 def CC_X86_32_HiPE : CallingConv<[
   // Promote i8/i16 arguments to i32.
   CCIfType<[i8, i16], CCPromoteToType<i32>>,
@@ -643,6 +663,7 @@ def CC_X86_32 : CallingConv<[
   CCIfCC<"CallingConv::Fast", CCDelegateTo<CC_X86_32_FastCC>>,
   CCIfCC<"CallingConv::GHC", CCDelegateTo<CC_X86_32_GHC>>,
   CCIfCC<"CallingConv::HiPE", CCDelegateTo<CC_X86_32_HiPE>>,
+  CCIfCC<"CallingConv::PML", CCDelegateTo<CC_X86_32_PML>>,
 
   // Otherwise, drop to normal X86-32 CC
   CCDelegateTo<CC_X86_32_C>
@@ -653,6 +674,7 @@ def CC_X86_64 : CallingConv<[
   CCIfCC<"CallingConv::GHC", CCDelegateTo<CC_X86_64_GHC>>,
   CCIfCC<"CallingConv::HiPE", CCDelegateTo<CC_X86_64_HiPE>>,
   CCIfCC<"CallingConv::WebKit_JS", CCDelegateTo<CC_X86_64_WebKit_JS>>,
+  CCIfCC<"CallingConv::PML", CCDelegateTo<CC_X86_64_PML>>,
   CCIfCC<"CallingConv::AnyReg", CCDelegateTo<CC_X86_64_AnyReg>>,
   CCIfCC<"CallingConv::X86_64_Win64", CCDelegateTo<CC_X86_Win64_C>>,
   CCIfCC<"CallingConv::X86_64_SysV", CCDelegateTo<CC_X86_64_C>>,
