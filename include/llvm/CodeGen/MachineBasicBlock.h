@@ -315,9 +315,18 @@ public:
 
   // LiveIn management methods.
 
-  /// addLiveIn - Add the specified register as a live in.  Note that it
-  /// is an error to add the same register to the same set more than once.
-  void addLiveIn(unsigned Reg)  { LiveIns.push_back(Reg); }
+  /// Adds the specified register as a live in. Note that it is an error to add
+  /// the same register to the same set more than once unless the intention is
+  /// to call sortUniqueLiveIns after all registers are added.
+  void addLiveIn(unsigned Reg) { LiveIns.push_back(Reg); }
+
+  /// Sorts and uniques the LiveIns vector. It can be significantly faster to do
+  /// this than repeatedly calling isLiveIn before calling addLiveIn for every
+  /// LiveIn insertion.
+  void sortUniqueLiveIns() {
+    std::sort(LiveIns.begin(), LiveIns.end());
+    LiveIns.erase(std::unique(LiveIns.begin(), LiveIns.end()), LiveIns.end());
+  }
 
   /// Add PhysReg as live in to this block, and ensure that there is a copy of
   /// PhysReg to a virtual register of class RC. Return the virtual register
@@ -486,11 +495,15 @@ public:
   /// Insert a range of instructions into the instruction list before I.
   template<typename IT>
   void insert(iterator I, IT S, IT E) {
+    assert((I == end() || I->getParent() == this) &&
+           "iterator points outside of basic block");
     Insts.insert(I.getInstrIterator(), S, E);
   }
 
   /// Insert MI into the instruction list before I.
   iterator insert(iterator I, MachineInstr *MI) {
+    assert((I == end() || I->getParent() == this) &&
+           "iterator points outside of basic block");
     assert(!MI->isBundledWithPred() && !MI->isBundledWithSucc() &&
            "Cannot insert instruction with bundle flags");
     return Insts.insert(I.getInstrIterator(), MI);
@@ -498,6 +511,8 @@ public:
 
   /// Insert MI into the instruction list after I.
   iterator insertAfter(iterator I, MachineInstr *MI) {
+    assert((I == end() || I->getParent() == this) &&
+           "iterator points outside of basic block");
     assert(!MI->isBundledWithPred() && !MI->isBundledWithSucc() &&
            "Cannot insert instruction with bundle flags");
     return Insts.insertAfter(I.getInstrIterator(), MI);

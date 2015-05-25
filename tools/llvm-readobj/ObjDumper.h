@@ -42,10 +42,13 @@ public:
 
   // Only implemented for MIPS ELF at this time.
   virtual void printMipsPLTGOT() { }
+  virtual void printMipsABIFlags() { }
 
   // Only implemented for PE/COFF.
   virtual void printCOFFImports() { }
+  virtual void printCOFFExports() { }
   virtual void printCOFFDirectives() { }
+  virtual void printCOFFBaseReloc() { }
 
 protected:
   StreamWriter& W;

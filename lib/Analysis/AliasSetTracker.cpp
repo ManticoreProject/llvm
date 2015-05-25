@@ -55,10 +55,13 @@ void AliasSet::mergeSetIn(AliasSet &AS, AliasSetTracker &AST) {
       AliasTy = MayAlias;
   }
 
+  bool ASHadUnknownInsts = !AS.UnknownInsts.empty();
   if (UnknownInsts.empty()) {            // Merge call sites...
-    if (!AS.UnknownInsts.empty())
+    if (ASHadUnknownInsts) {
       std::swap(UnknownInsts, AS.UnknownInsts);
-  } else if (!AS.UnknownInsts.empty()) {
+      addRef();
+    }
+  } else if (ASHadUnknownInsts) {
     UnknownInsts.insert(UnknownInsts.end(), AS.UnknownInsts.begin(), AS.UnknownInsts.end());
     AS.UnknownInsts.clear();
   }
@@ -76,6 +79,8 @@ void AliasSet::mergeSetIn(AliasSet &AS, AliasSetTracker &AST) {
     AS.PtrListEnd = &AS.PtrList;
     assert(*AS.PtrListEnd == nullptr && "End of list is not null?");
   }
+  if (ASHadUnknownInsts)
+    AS.dropRef(AST);
 }
 
 void AliasSetTracker::removeAliasSet(AliasSet *AS) {
@@ -123,6 +128,8 @@ void AliasSet::addPointer(AliasSetTracker &AST, PointerRec &Entry,
 }
 
 void AliasSet::addUnknownInst(Instruction *I, AliasAnalysis &AA) {
+  if (UnknownInsts.empty())
+    addRef();
   UnknownInsts.push_back(I);
 
   if (!I->mayWriteToMemory()) {
@@ -175,12 +182,13 @@ bool AliasSet::aliasesPointer(const Value *Ptr, uint64_t Size,
   return false;
 }
 
-bool AliasSet::aliasesUnknownInst(Instruction *Inst, AliasAnalysis &AA) const {
+bool AliasSet::aliasesUnknownInst(const Instruction *Inst,
+                                  AliasAnalysis &AA) const {
   if (!Inst->mayReadOrWriteMemory())
     return false;
 
   for (unsigned i = 0, e = UnknownInsts.size(); i != e; ++i) {
-    CallSite C1 = getUnknownInst(i), C2 = Inst;
+    ImmutableCallSite C1(getUnknownInst(i)), C2(Inst);
     if (!C1 || !C2 ||
         AA.getModRefInfo(C1, C2) != AliasAnalysis::NoModRef ||
         AA.getModRefInfo(C2, C1) != AliasAnalysis::NoModRef)
@@ -218,13 +226,14 @@ AliasSet *AliasSetTracker::findAliasSetForPointer(const Value *Ptr,
                                                   uint64_t Size,
                                                   const AAMDNodes &AAInfo) {
   AliasSet *FoundSet = nullptr;
-  for (iterator I = begin(), E = end(); I != E; ++I) {
-    if (I->Forward || !I->aliasesPointer(Ptr, Size, AAInfo, AA)) continue;
+  for (iterator I = begin(), E = end(); I != E;) {
+    iterator Cur = I++;
+    if (Cur->Forward || !Cur->aliasesPointer(Ptr, Size, AAInfo, AA)) continue;
     
     if (!FoundSet) {      // If this is the first alias set ptr can go into.
-      FoundSet = I;       // Remember it.
+      FoundSet = Cur;     // Remember it.
     } else {              // Otherwise, we must merge the sets.
-      FoundSet->mergeSetIn(*I, *this);     // Merge in contents.
+      FoundSet->mergeSetIn(*Cur, *this);     // Merge in contents.
     }
   }
 
@@ -234,7 +243,7 @@ AliasSet *AliasSetTracker::findAliasSetForPointer(const Value *Ptr,
 /// containsPointer - Return true if the specified location is represented by
 /// this alias set, false otherwise.  This does not modify the AST object or
 /// alias sets.
-bool AliasSetTracker::containsPointer(Value *Ptr, uint64_t Size,
+bool AliasSetTracker::containsPointer(const Value *Ptr, uint64_t Size,
                                       const AAMDNodes &AAInfo) const {
   for (const_iterator I = begin(), E = end(); I != E; ++I)
     if (!I->Forward && I->aliasesPointer(Ptr, Size, AAInfo, AA))
@@ -242,7 +251,7 @@ bool AliasSetTracker::containsPointer(Value *Ptr, uint64_t Size,
   return false;
 }
 
-bool AliasSetTracker::containsUnknown(Instruction *Inst) const {
+bool AliasSetTracker::containsUnknown(const Instruction *Inst) const {
   for (const_iterator I = begin(), E = end(); I != E; ++I)
     if (!I->Forward && I->aliasesUnknownInst(Inst, AA))
       return true;
@@ -251,14 +260,14 @@ bool AliasSetTracker::containsUnknown(Instruction *Inst) const {
 
 AliasSet *AliasSetTracker::findAliasSetForUnknownInst(Instruction *Inst) {
   AliasSet *FoundSet = nullptr;
-  for (iterator I = begin(), E = end(); I != E; ++I) {
-    if (I->Forward || !I->aliasesUnknownInst(Inst, AA))
+  for (iterator I = begin(), E = end(); I != E;) {
+    iterator Cur = I++;
+    if (Cur->Forward || !Cur->aliasesUnknownInst(Inst, AA))
       continue;
-    
     if (!FoundSet)            // If this is the first alias set ptr can go into.
-      FoundSet = I;           // Remember it.
-    else if (!I->Forward)     // Otherwise, we must merge the sets.
-      FoundSet->mergeSetIn(*I, *this);     // Merge in contents.
+      FoundSet = Cur;         // Remember it.
+    else if (!Cur->Forward)   // Otherwise, we must merge the sets.
+      FoundSet->mergeSetIn(*Cur, *this);     // Merge in contents.
   }
   return FoundSet;
 }
@@ -406,6 +415,8 @@ void AliasSetTracker::add(const AliasSetTracker &AST) {
 /// tracker.
 void AliasSetTracker::remove(AliasSet &AS) {
   // Drop all call sites.
+  if (!AS.UnknownInsts.empty())
+    AS.dropRef(*this);
   AS.UnknownInsts.clear();
   
   // Clear the alias set.
@@ -510,10 +521,10 @@ void AliasSetTracker::deleteValue(Value *PtrVal) {
   if (Instruction *Inst = dyn_cast<Instruction>(PtrVal)) {
     if (Inst->mayReadOrWriteMemory()) {
       // Scan all the alias sets to see if this call site is contained.
-      for (iterator I = begin(), E = end(); I != E; ++I) {
-        if (I->Forward) continue;
-        
-        I->removeUnknownInst(Inst);
+      for (iterator I = begin(), E = end(); I != E;) {
+        iterator Cur = I++;
+        if (!Cur->Forward)
+          Cur->removeUnknownInst(*this, Inst);
       }
     }
   }

@@ -11,16 +11,18 @@
 #define LLVM_MC_MCASSEMBLER_H
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/PointerIntPair.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/ilist.h"
 #include "llvm/ADT/ilist_node.h"
+#include "llvm/ADT/iterator.h"
 #include "llvm/MC/MCDirectives.h"
 #include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCLinkerOptimizationHint.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/DataTypes.h"
 #include <algorithm>
@@ -38,16 +40,14 @@ class MCObjectWriter;
 class MCSection;
 class MCSectionData;
 class MCSubtargetInfo;
-class MCSymbol;
-class MCSymbolData;
 class MCValue;
 class MCAsmBackend;
 
 class MCFragment : public ilist_node<MCFragment> {
   friend class MCAsmLayout;
 
-  MCFragment(const MCFragment&) LLVM_DELETED_FUNCTION;
-  void operator=(const MCFragment&) LLVM_DELETED_FUNCTION;
+  MCFragment(const MCFragment &) = delete;
+  void operator=(const MCFragment &) = delete;
 
 public:
   enum FragmentType {
@@ -70,9 +70,9 @@ private:
 
   /// Atom - The atom this fragment is in, as represented by it's defining
   /// symbol.
-  MCSymbolData *Atom;
+  const MCSymbol *Atom;
 
-  /// @name Assembler Backend Data
+  /// \name Assembler Backend Data
   /// @{
   //
   // FIXME: This could all be kept private to the assembler implementation.
@@ -87,7 +87,7 @@ private:
   /// @}
 
 protected:
-  MCFragment(FragmentType _Kind, MCSectionData *_Parent = nullptr);
+  MCFragment(FragmentType Kind, MCSectionData *Parent = nullptr);
 
 public:
   // Only for sentinel.
@@ -99,8 +99,8 @@ public:
   MCSectionData *getParent() const { return Parent; }
   void setParent(MCSectionData *Value) { Parent = Value; }
 
-  MCSymbolData *getAtom() const { return Atom; }
-  void setAtom(MCSymbolData *Value) { Atom = Value; }
+  const MCSymbol *getAtom() const { return Atom; }
+  void setAtom(const MCSymbol *Value) { Atom = Value; }
 
   unsigned getLayoutOrder() const { return LayoutOrder; }
   void setLayoutOrder(unsigned Value) { LayoutOrder = Value; }
@@ -111,21 +111,18 @@ public:
 
   /// \brief Should this fragment be placed at the end of an aligned bundle?
   virtual bool alignToBundleEnd() const { return false; }
-  virtual void setAlignToBundleEnd(bool V) { }
+  virtual void setAlignToBundleEnd(bool V) {}
 
   /// \brief Get the padding size that must be inserted before this fragment.
   /// Used for bundling. By default, no padding is inserted.
   /// Note that padding size is restricted to 8 bits. This is an optimization
   /// to reduce the amount of space used for each fragment. In practice, larger
   /// padding should never be required.
-  virtual uint8_t getBundlePadding() const {
-    return 0;
-  }
+  virtual uint8_t getBundlePadding() const { return 0; }
 
   /// \brief Set the padding size for this fragment. By default it's a no-op,
   /// and only some fragments have a meaningful implementation.
-  virtual void setBundlePadding(uint8_t N) {
-  }
+  virtual void setBundlePadding(uint8_t N) {}
 
   void dump();
 };
@@ -137,33 +134,28 @@ class MCEncodedFragment : public MCFragment {
   virtual void anchor();
 
   uint8_t BundlePadding;
+
 public:
   MCEncodedFragment(MCFragment::FragmentType FType, MCSectionData *SD = nullptr)
-    : MCFragment(FType, SD), BundlePadding(0)
-  {
-  }
-  virtual ~MCEncodedFragment();
+      : MCFragment(FType, SD), BundlePadding(0) {}
+  ~MCEncodedFragment() override;
 
   virtual SmallVectorImpl<char> &getContents() = 0;
   virtual const SmallVectorImpl<char> &getContents() const = 0;
 
-  uint8_t getBundlePadding() const override {
-    return BundlePadding;
-  }
+  uint8_t getBundlePadding() const override { return BundlePadding; }
 
-  void setBundlePadding(uint8_t N) override {
-    BundlePadding = N;
-  }
+  void setBundlePadding(uint8_t N) override { BundlePadding = N; }
 
   static bool classof(const MCFragment *F) {
     MCFragment::FragmentType Kind = F->getKind();
     switch (Kind) {
-      default:
-        return false;
-      case MCFragment::FT_Relaxable:
-      case MCFragment::FT_CompactEncodedInst:
-      case MCFragment::FT_Data:
-        return true;
+    default:
+      return false;
+    case MCFragment::FT_Relaxable:
+    case MCFragment::FT_CompactEncodedInst:
+    case MCFragment::FT_Data:
+      return true;
     }
   }
 };
@@ -177,11 +169,9 @@ class MCEncodedFragmentWithFixups : public MCEncodedFragment {
 public:
   MCEncodedFragmentWithFixups(MCFragment::FragmentType FType,
                               MCSectionData *SD = nullptr)
-    : MCEncodedFragment(FType, SD)
-  {
-  }
+      : MCEncodedFragment(FType, SD) {}
 
-  virtual ~MCEncodedFragmentWithFixups();
+  ~MCEncodedFragmentWithFixups() override;
 
   typedef SmallVectorImpl<MCFixup>::const_iterator const_fixup_iterator;
   typedef SmallVectorImpl<MCFixup>::iterator fixup_iterator;
@@ -190,7 +180,7 @@ public:
   virtual const SmallVectorImpl<MCFixup> &getFixups() const = 0;
 
   virtual fixup_iterator fixup_begin() = 0;
-  virtual const_fixup_iterator fixup_begin() const  = 0;
+  virtual const_fixup_iterator fixup_begin() const = 0;
   virtual fixup_iterator fixup_end() = 0;
   virtual const_fixup_iterator fixup_end() const = 0;
 
@@ -215,25 +205,18 @@ class MCDataFragment : public MCEncodedFragmentWithFixups {
 
   /// Fixups - The list of fixups in this fragment.
   SmallVector<MCFixup, 4> Fixups;
+
 public:
   MCDataFragment(MCSectionData *SD = nullptr)
-    : MCEncodedFragmentWithFixups(FT_Data, SD),
-      HasInstructions(false), AlignToBundleEnd(false)
-  {
-  }
+      : MCEncodedFragmentWithFixups(FT_Data, SD), HasInstructions(false),
+        AlignToBundleEnd(false) {}
 
   SmallVectorImpl<char> &getContents() override { return Contents; }
-  const SmallVectorImpl<char> &getContents() const override {
-    return Contents;
-  }
+  const SmallVectorImpl<char> &getContents() const override { return Contents; }
 
-  SmallVectorImpl<MCFixup> &getFixups() override {
-    return Fixups;
-  }
+  SmallVectorImpl<MCFixup> &getFixups() override { return Fixups; }
 
-  const SmallVectorImpl<MCFixup> &getFixups() const override {
-    return Fixups;
-  }
+  const SmallVectorImpl<MCFixup> &getFixups() const override { return Fixups; }
 
   bool hasInstructions() const override { return HasInstructions; }
   virtual void setHasInstructions(bool V) { HasInstructions = V; }
@@ -244,8 +227,8 @@ public:
   fixup_iterator fixup_begin() override { return Fixups.begin(); }
   const_fixup_iterator fixup_begin() const override { return Fixups.begin(); }
 
-  fixup_iterator fixup_end() override {return Fixups.end();}
-  const_fixup_iterator fixup_end() const override {return Fixups.end();}
+  fixup_iterator fixup_end() override { return Fixups.end(); }
+  const_fixup_iterator fixup_end() const override { return Fixups.end(); }
 
   static bool classof(const MCFragment *F) {
     return F->getKind() == MCFragment::FT_Data;
@@ -264,15 +247,12 @@ class MCCompactEncodedInstFragment : public MCEncodedFragment {
   bool AlignToBundleEnd;
 
   SmallVector<char, 4> Contents;
+
 public:
   MCCompactEncodedInstFragment(MCSectionData *SD = nullptr)
-    : MCEncodedFragment(FT_CompactEncodedInst, SD), AlignToBundleEnd(false)
-  {
-  }
+      : MCEncodedFragment(FT_CompactEncodedInst, SD), AlignToBundleEnd(false) {}
 
-  bool hasInstructions() const override {
-    return true;
-  }
+  bool hasInstructions() const override { return true; }
 
   SmallVectorImpl<char> &getContents() override { return Contents; }
   const SmallVectorImpl<char> &getContents() const override { return Contents; }
@@ -306,35 +286,29 @@ class MCRelaxableFragment : public MCEncodedFragmentWithFixups {
   SmallVector<MCFixup, 1> Fixups;
 
 public:
-  MCRelaxableFragment(const MCInst &_Inst,
-                      const MCSubtargetInfo &_STI,
+  MCRelaxableFragment(const MCInst &Inst, const MCSubtargetInfo &STI,
                       MCSectionData *SD = nullptr)
-    : MCEncodedFragmentWithFixups(FT_Relaxable, SD), Inst(_Inst), STI(_STI) {
-  }
+      : MCEncodedFragmentWithFixups(FT_Relaxable, SD), Inst(Inst), STI(STI) {}
 
   SmallVectorImpl<char> &getContents() override { return Contents; }
   const SmallVectorImpl<char> &getContents() const override { return Contents; }
 
   const MCInst &getInst() const { return Inst; }
-  void setInst(const MCInst& Value) { Inst = Value; }
+  void setInst(const MCInst &Value) { Inst = Value; }
 
   const MCSubtargetInfo &getSubtargetInfo() { return STI; }
 
-  SmallVectorImpl<MCFixup> &getFixups() override {
-    return Fixups;
-  }
+  SmallVectorImpl<MCFixup> &getFixups() override { return Fixups; }
 
-  const SmallVectorImpl<MCFixup> &getFixups() const override {
-    return Fixups;
-  }
+  const SmallVectorImpl<MCFixup> &getFixups() const override { return Fixups; }
 
   bool hasInstructions() const override { return true; }
 
   fixup_iterator fixup_begin() override { return Fixups.begin(); }
   const_fixup_iterator fixup_begin() const override { return Fixups.begin(); }
 
-  fixup_iterator fixup_end() override {return Fixups.end();}
-  const_fixup_iterator fixup_end() const override {return Fixups.end();}
+  fixup_iterator fixup_end() override { return Fixups.end(); }
+  const_fixup_iterator fixup_end() const override { return Fixups.end(); }
 
   static bool classof(const MCFragment *F) {
     return F->getKind() == MCFragment::FT_Relaxable;
@@ -363,13 +337,12 @@ class MCAlignFragment : public MCFragment {
   bool EmitNops : 1;
 
 public:
-  MCAlignFragment(unsigned _Alignment, int64_t _Value, unsigned _ValueSize,
-                  unsigned _MaxBytesToEmit, MCSectionData *SD = nullptr)
-    : MCFragment(FT_Align, SD), Alignment(_Alignment),
-      Value(_Value),ValueSize(_ValueSize),
-      MaxBytesToEmit(_MaxBytesToEmit), EmitNops(false) {}
+  MCAlignFragment(unsigned Alignment, int64_t Value, unsigned ValueSize,
+                  unsigned MaxBytesToEmit, MCSectionData *SD = nullptr)
+      : MCFragment(FT_Align, SD), Alignment(Alignment), Value(Value),
+        ValueSize(ValueSize), MaxBytesToEmit(MaxBytesToEmit), EmitNops(false) {}
 
-  /// @name Accessors
+  /// \name Accessors
   /// @{
 
   unsigned getAlignment() const { return Alignment; }
@@ -404,15 +377,15 @@ class MCFillFragment : public MCFragment {
   uint64_t Size;
 
 public:
-  MCFillFragment(int64_t _Value, unsigned _ValueSize, uint64_t _Size,
+  MCFillFragment(int64_t Value, unsigned ValueSize, uint64_t Size,
                  MCSectionData *SD = nullptr)
-    : MCFragment(FT_Fill, SD),
-      Value(_Value), ValueSize(_ValueSize), Size(_Size) {
+      : MCFragment(FT_Fill, SD), Value(Value), ValueSize(ValueSize),
+        Size(Size) {
     assert((!ValueSize || (Size % ValueSize) == 0) &&
            "Fill size must be a multiple of the value size!");
   }
 
-  /// @name Accessors
+  /// \name Accessors
   /// @{
 
   int64_t getValue() const { return Value; }
@@ -438,12 +411,10 @@ class MCOrgFragment : public MCFragment {
   int8_t Value;
 
 public:
-  MCOrgFragment(const MCExpr &_Offset, int8_t _Value,
-                MCSectionData *SD = nullptr)
-    : MCFragment(FT_Org, SD),
-      Offset(&_Offset), Value(_Value) {}
+  MCOrgFragment(const MCExpr &Offset, int8_t Value, MCSectionData *SD = nullptr)
+      : MCFragment(FT_Org, SD), Offset(&Offset), Value(Value) {}
 
-  /// @name Accessors
+  /// \name Accessors
   /// @{
 
   const MCExpr &getOffset() const { return *Offset; }
@@ -467,13 +438,15 @@ class MCLEBFragment : public MCFragment {
   bool IsSigned;
 
   SmallString<8> Contents;
+
 public:
   MCLEBFragment(const MCExpr &Value_, bool IsSigned_,
                 MCSectionData *SD = nullptr)
-    : MCFragment(FT_LEB, SD),
-      Value(&Value_), IsSigned(IsSigned_) { Contents.push_back(0); }
+      : MCFragment(FT_LEB, SD), Value(&Value_), IsSigned(IsSigned_) {
+    Contents.push_back(0);
+  }
 
-  /// @name Accessors
+  /// \name Accessors
   /// @{
 
   const MCExpr &getValue() const { return *Value; }
@@ -504,12 +477,13 @@ class MCDwarfLineAddrFragment : public MCFragment {
   SmallString<8> Contents;
 
 public:
-  MCDwarfLineAddrFragment(int64_t _LineDelta, const MCExpr &_AddrDelta,
-                      MCSectionData *SD = nullptr)
-    : MCFragment(FT_Dwarf, SD),
-      LineDelta(_LineDelta), AddrDelta(&_AddrDelta) { Contents.push_back(0); }
+  MCDwarfLineAddrFragment(int64_t LineDelta, const MCExpr &AddrDelta,
+                          MCSectionData *SD = nullptr)
+      : MCFragment(FT_Dwarf, SD), LineDelta(LineDelta), AddrDelta(&AddrDelta) {
+    Contents.push_back(0);
+  }
 
-  /// @name Accessors
+  /// \name Accessors
   /// @{
 
   int64_t getLineDelta() const { return LineDelta; }
@@ -536,12 +510,12 @@ class MCDwarfCallFrameFragment : public MCFragment {
   SmallString<8> Contents;
 
 public:
-  MCDwarfCallFrameFragment(const MCExpr &_AddrDelta,
-                           MCSectionData *SD = nullptr)
-    : MCFragment(FT_DwarfFrame, SD),
-      AddrDelta(&_AddrDelta) { Contents.push_back(0); }
+  MCDwarfCallFrameFragment(const MCExpr &AddrDelta, MCSectionData *SD = nullptr)
+      : MCFragment(FT_DwarfFrame, SD), AddrDelta(&AddrDelta) {
+    Contents.push_back(0);
+  }
 
-  /// @name Accessors
+  /// \name Accessors
   /// @{
 
   const MCExpr &getAddrDelta() const { return *AddrDelta; }
@@ -562,8 +536,8 @@ public:
 class MCSectionData : public ilist_node<MCSectionData> {
   friend class MCAsmLayout;
 
-  MCSectionData(const MCSectionData&) LLVM_DELETED_FUNCTION;
-  void operator=(const MCSectionData&) LLVM_DELETED_FUNCTION;
+  MCSectionData(const MCSectionData &) = delete;
+  void operator=(const MCSectionData &) = delete;
 
 public:
   typedef iplist<MCFragment> FragmentListType;
@@ -574,43 +548,14 @@ public:
   typedef FragmentListType::const_reverse_iterator const_reverse_iterator;
   typedef FragmentListType::reverse_iterator reverse_iterator;
 
-  /// \brief Express the state of bundle locked groups while emitting code.
-  enum BundleLockStateType {
-    NotBundleLocked,
-    BundleLocked,
-    BundleLockedAlignToEnd
-  };
 private:
   FragmentListType Fragments;
-  const MCSection *Section;
+  MCSection *Section;
 
-  /// Ordinal - The section index in the assemblers section list.
-  unsigned Ordinal;
-
-  /// LayoutOrder - The index of this section in the layout order.
-  unsigned LayoutOrder;
-
-  /// Alignment - The maximum alignment seen in this section.
-  unsigned Alignment;
-
-  /// \brief Keeping track of bundle-locked state.
-  BundleLockStateType BundleLockState;
-
-  /// \brief Current nesting depth of bundle_lock directives.
-  unsigned BundleLockNestingDepth;
-
-  /// \brief We've seen a bundle_lock directive but not its first instruction
-  /// yet.
-  bool BundleGroupBeforeFirstInst;
-
-  /// @name Assembler Backend Data
+  /// \name Assembler Backend Data
   /// @{
   //
   // FIXME: This could all be kept private to the assembler implementation.
-
-  /// HasInstructions - Whether this section has had instructions emitted into
-  /// it.
-  unsigned HasInstructions : 1;
 
   /// Mapping from subsection number to insertion point for subsection numbers
   /// below that number.
@@ -621,23 +566,11 @@ private:
 public:
   // Only for use as sentinel.
   MCSectionData();
-  MCSectionData(const MCSection &Section, MCAssembler *A = nullptr);
+  MCSectionData(MCSection &Section, MCAssembler *A = nullptr);
 
-  const MCSection &getSection() const { return *Section; }
+  MCSection &getSection() const { return *Section; }
 
-  unsigned getAlignment() const { return Alignment; }
-  void setAlignment(unsigned Value) { Alignment = Value; }
-
-  bool hasInstructions() const { return HasInstructions; }
-  void setHasInstructions(bool Value) { HasInstructions = Value; }
-
-  unsigned getOrdinal() const { return Ordinal; }
-  void setOrdinal(unsigned Value) { Ordinal = Value; }
-
-  unsigned getLayoutOrder() const { return LayoutOrder; }
-  void setLayoutOrder(unsigned Value) { LayoutOrder = Value; }
-
-  /// @name Fragment Access
+  /// \name Fragment Access
   /// @{
 
   const FragmentListType &getFragmentList() const { return Fragments; }
@@ -661,154 +594,9 @@ public:
 
   iterator getSubsectionInsertionPoint(unsigned Subsection);
 
-  bool isBundleLocked() const {
-    return BundleLockState != NotBundleLocked;
-  }
-
-  BundleLockStateType getBundleLockState() const {
-    return BundleLockState;
-  }
-
-  void setBundleLockState(BundleLockStateType NewState);
-
-  bool isBundleGroupBeforeFirstInst() const {
-    return BundleGroupBeforeFirstInst;
-  }
-
-  void setBundleGroupBeforeFirstInst(bool IsFirst) {
-    BundleGroupBeforeFirstInst = IsFirst;
-  }
-
   void dump();
 
   /// @}
-};
-
-// FIXME: Same concerns as with SectionData.
-class MCSymbolData : public ilist_node<MCSymbolData> {
-  const MCSymbol *Symbol;
-
-  /// Fragment - The fragment this symbol's value is relative to, if any. Also
-  /// stores if this symbol is visible outside this translation unit (bit 0) or
-  /// if it is private extern (bit 1).
-  PointerIntPair<MCFragment *, 2> Fragment;
-
-  union {
-    /// Offset - The offset to apply to the fragment address to form this
-    /// symbol's value.
-    uint64_t Offset;
-
-    /// CommonSize - The size of the symbol, if it is 'common'.
-    uint64_t CommonSize;
-  };
-
-  /// SymbolSize - An expression describing how to calculate the size of
-  /// a symbol. If a symbol has no size this field will be NULL.
-  const MCExpr *SymbolSize;
-
-  /// CommonAlign - The alignment of the symbol, if it is 'common', or -1.
-  //
-  // FIXME: Pack this in with other fields?
-  unsigned CommonAlign;
-
-  /// Flags - The Flags field is used by object file implementations to store
-  /// additional per symbol information which is not easily classified.
-  uint32_t Flags;
-
-  /// Index - Index field, for use by the object file implementation.
-  uint64_t Index;
-
-public:
-  // Only for use as sentinel.
-  MCSymbolData();
-  MCSymbolData(const MCSymbol &_Symbol, MCFragment *_Fragment, uint64_t _Offset,
-               MCAssembler *A = nullptr);
-
-  /// @name Accessors
-  /// @{
-
-  const MCSymbol &getSymbol() const { return *Symbol; }
-
-  MCFragment *getFragment() const { return Fragment.getPointer(); }
-  void setFragment(MCFragment *Value) { Fragment.setPointer(Value); }
-
-  uint64_t getOffset() const {
-    assert(!isCommon());
-    return Offset;
-  }
-  void setOffset(uint64_t Value) {
-    assert(!isCommon());
-    Offset = Value;
-  }
-
-  /// @}
-  /// @name Symbol Attributes
-  /// @{
-
-  bool isExternal() const { return Fragment.getInt() & 1; }
-  void setExternal(bool Value) {
-    Fragment.setInt((Fragment.getInt() & ~1) | unsigned(Value));
-  }
-
-  bool isPrivateExtern() const { return Fragment.getInt() & 2; }
-  void setPrivateExtern(bool Value) {
-    Fragment.setInt((Fragment.getInt() & ~2) | (unsigned(Value) << 1));
-  }
-
-  /// isCommon - Is this a 'common' symbol.
-  bool isCommon() const { return CommonAlign != -1U; }
-
-  /// setCommon - Mark this symbol as being 'common'.
-  ///
-  /// \param Size - The size of the symbol.
-  /// \param Align - The alignment of the symbol.
-  void setCommon(uint64_t Size, unsigned Align) {
-    assert(getOffset() == 0);
-    CommonSize = Size;
-    CommonAlign = Align;
-  }
-
-  /// getCommonSize - Return the size of a 'common' symbol.
-  uint64_t getCommonSize() const {
-    assert(isCommon() && "Not a 'common' symbol!");
-    return CommonSize;
-  }
-
-  void setSize(const MCExpr *SS) {
-    SymbolSize = SS;
-  }
-
-  const MCExpr *getSize() const {
-    return SymbolSize;
-  }
-
-
-  /// getCommonAlignment - Return the alignment of a 'common' symbol.
-  unsigned getCommonAlignment() const {
-    assert(isCommon() && "Not a 'common' symbol!");
-    return CommonAlign;
-  }
-
-  /// getFlags - Get the (implementation defined) symbol flags.
-  uint32_t getFlags() const { return Flags; }
-
-  /// setFlags - Set the (implementation defined) symbol flags.
-  void setFlags(uint32_t Value) { Flags = Value; }
-
-  /// modifyFlags - Modify the flags via a mask
-  void modifyFlags(uint32_t Value, uint32_t Mask) {
-    Flags = (Flags & ~Mask) | Value;
-  }
-
-  /// getIndex - Get the (implementation defined) index.
-  uint64_t getIndex() const { return Index; }
-
-  /// setIndex - Set the (implementation defined) index.
-  void setIndex(uint64_t Value) { Index = Value; }
-
-  /// @}
-
-  void dump() const;
 };
 
 // FIXME: This really doesn't belong here. See comments below.
@@ -832,13 +620,14 @@ class MCAssembler {
 
 public:
   typedef iplist<MCSectionData> SectionDataListType;
-  typedef iplist<MCSymbolData> SymbolDataListType;
+  typedef std::vector<const MCSymbol *> SymbolDataListType;
 
   typedef SectionDataListType::const_iterator const_iterator;
   typedef SectionDataListType::iterator iterator;
 
-  typedef SymbolDataListType::const_iterator const_symbol_iterator;
-  typedef SymbolDataListType::iterator symbol_iterator;
+  typedef pointee_iterator<SymbolDataListType::const_iterator>
+  const_symbol_iterator;
+  typedef pointee_iterator<SymbolDataListType::iterator> symbol_iterator;
 
   typedef iterator_range<symbol_iterator> symbol_range;
   typedef iterator_range<const_symbol_iterator> const_symbol_range;
@@ -847,11 +636,11 @@ public:
   typedef FileNameVectorType::const_iterator const_file_name_iterator;
 
   typedef std::vector<IndirectSymbolData>::const_iterator
-    const_indirect_symbol_iterator;
+      const_indirect_symbol_iterator;
   typedef std::vector<IndirectSymbolData>::iterator indirect_symbol_iterator;
 
   typedef std::vector<DataRegionData>::const_iterator
-    const_data_region_iterator;
+      const_data_region_iterator;
   typedef std::vector<DataRegionData>::iterator data_region_iterator;
 
   /// MachO specific deployment target version info.
@@ -863,9 +652,10 @@ public:
     unsigned Minor;
     unsigned Update;
   } VersionMinInfoType;
+
 private:
-  MCAssembler(const MCAssembler&) LLVM_DELETED_FUNCTION;
-  void operator=(const MCAssembler&) LLVM_DELETED_FUNCTION;
+  MCAssembler(const MCAssembler &) = delete;
+  void operator=(const MCAssembler &) = delete;
 
   MCContext &Context;
 
@@ -879,24 +669,21 @@ private:
 
   iplist<MCSectionData> Sections;
 
-  iplist<MCSymbolData> Symbols;
+  SymbolDataListType Symbols;
+
+  DenseSet<const MCSymbol *> LocalsUsedInReloc;
 
   /// The map of sections to their associated assembler backend data.
   //
   // FIXME: Avoid this indirection?
-  DenseMap<const MCSection*, MCSectionData*> SectionMap;
-
-  /// The map of symbols to their associated assembler backend data.
-  //
-  // FIXME: Avoid this indirection?
-  DenseMap<const MCSymbol*, MCSymbolData*> SymbolMap;
+  DenseMap<const MCSection *, MCSectionData *> SectionMap;
 
   std::vector<IndirectSymbolData> IndirectSymbols;
 
   std::vector<DataRegionData> DataRegions;
 
   /// The list of linker options to propagate into the object file.
-  std::vector<std::vector<std::string> > LinkerOptions;
+  std::vector<std::vector<std::string>> LinkerOptions;
 
   /// List of declared file names
   FileNameVectorType FileNames;
@@ -908,7 +695,7 @@ private:
   // here. Maybe when the relocation stuff moves to target specific,
   // this can go with it? The streamer would need some target specific
   // refactoring too.
-  mutable SmallPtrSet<const MCSymbol*, 64> ThumbFuncs;
+  mutable SmallPtrSet<const MCSymbol *, 64> ThumbFuncs;
 
   /// \brief The bundle alignment size currently set in the assembler.
   ///
@@ -930,6 +717,7 @@ private:
   MCLOHContainer LOHContainer;
 
   VersionMinInfoType VersionMinInfo;
+
 private:
   /// Evaluate a fixup to a relocatable expression and the value which should be
   /// placed into the fixup.
@@ -944,9 +732,9 @@ private:
   /// \return Whether the fixup value was fully resolved. This is true if the
   /// \p Value result is fixed, otherwise the value may change due to
   /// relocation.
-  bool evaluateFixup(const MCAsmLayout &Layout,
-                     const MCFixup &Fixup, const MCFragment *DF,
-                     MCValue &Target, uint64_t &Value) const;
+  bool evaluateFixup(const MCAsmLayout &Layout, const MCFixup &Fixup,
+                     const MCFragment *DF, MCValue &Target,
+                     uint64_t &Value) const;
 
   /// Check whether a fixup can be satisfied, or whether it needs to be relaxed
   /// (increased in size, in order to hold its value correctly).
@@ -980,6 +768,9 @@ private:
                                         MCFragment &F, const MCFixup &Fixup);
 
 public:
+  void addLocalUsedInReloc(const MCSymbol &Sym);
+  bool isLocalUsedInReloc(const MCSymbol &Sym) const;
+
   /// Compute the effective fragment size assuming it is laid out at the given
   /// \p SectionAddress and \p FragmentOffset.
   uint64_t computeFragmentSize(const MCAsmLayout &Layout,
@@ -987,7 +778,7 @@ public:
 
   /// Find the symbol which defines the atom containing the given symbol, or
   /// null if there is no such symbol.
-  const MCSymbolData *getAtom(const MCSymbolData *Symbol) const;
+  const MCSymbol *getAtom(const MCSymbol &S) const;
 
   /// Check whether a particular symbol is visible to the linker and is required
   /// in the symbol table, or whether it can be discarded by the assembler. This
@@ -1006,8 +797,8 @@ public:
   void setIsThumbFunc(const MCSymbol *Func) { ThumbFuncs.insert(Func); }
 
   /// ELF e_header flags
-  unsigned getELFHeaderEFlags() const {return ELFHeaderEFlags;}
-  void setELFHeaderEFlags(unsigned Flags) { ELFHeaderEFlags = Flags;}
+  unsigned getELFHeaderEFlags() const { return ELFHeaderEFlags; }
+  void setELFHeaderEFlags(unsigned Flags) { ELFHeaderEFlags = Flags; }
 
   /// MachO deployment target version information.
   const VersionMinInfoType &getVersionMinInfo() const { return VersionMinInfo; }
@@ -1051,31 +842,23 @@ public:
   void Finish();
 
   // FIXME: This does not belong here.
-  bool getSubsectionsViaSymbols() const {
-    return SubsectionsViaSymbols;
-  }
-  void setSubsectionsViaSymbols(bool Value) {
-    SubsectionsViaSymbols = Value;
-  }
+  bool getSubsectionsViaSymbols() const { return SubsectionsViaSymbols; }
+  void setSubsectionsViaSymbols(bool Value) { SubsectionsViaSymbols = Value; }
 
   bool getRelaxAll() const { return RelaxAll; }
   void setRelaxAll(bool Value) { RelaxAll = Value; }
 
-  bool isBundlingEnabled() const {
-    return BundleAlignSize != 0;
-  }
+  bool isBundlingEnabled() const { return BundleAlignSize != 0; }
 
-  unsigned getBundleAlignSize() const {
-    return BundleAlignSize;
-  }
+  unsigned getBundleAlignSize() const { return BundleAlignSize; }
 
   void setBundleAlignSize(unsigned Size) {
-    assert((Size == 0 || !(Size & (Size - 1))) && 
+    assert((Size == 0 || !(Size & (Size - 1))) &&
            "Expect a power-of-two bundle align size");
     BundleAlignSize = Size;
   }
 
-  /// @name Section List Access
+  /// \name Section List Access
   /// @{
 
   const SectionDataListType &getSectionList() const { return Sections; }
@@ -1090,12 +873,8 @@ public:
   size_t size() const { return Sections.size(); }
 
   /// @}
-  /// @name Symbol List Access
+  /// \name Symbol List Access
   /// @{
-
-  const SymbolDataListType &getSymbolList() const { return Symbols; }
-  SymbolDataListType &getSymbolList() { return Symbols; }
-
   symbol_iterator symbol_begin() { return Symbols.begin(); }
   const_symbol_iterator symbol_begin() const { return Symbols.begin(); }
 
@@ -1103,12 +882,14 @@ public:
   const_symbol_iterator symbol_end() const { return Symbols.end(); }
 
   symbol_range symbols() { return make_range(symbol_begin(), symbol_end()); }
-  const_symbol_range symbols() const { return make_range(symbol_begin(), symbol_end()); }
+  const_symbol_range symbols() const {
+    return make_range(symbol_begin(), symbol_end());
+  }
 
   size_t symbol_size() const { return Symbols.size(); }
 
   /// @}
-  /// @name Indirect Symbol List Access
+  /// \name Indirect Symbol List Access
   /// @{
 
   // FIXME: This is a total hack, this should not be here. Once things are
@@ -1135,34 +916,28 @@ public:
   size_t indirect_symbol_size() const { return IndirectSymbols.size(); }
 
   /// @}
-  /// @name Linker Option List Access
+  /// \name Linker Option List Access
   /// @{
 
-  std::vector<std::vector<std::string> > &getLinkerOptions() {
+  std::vector<std::vector<std::string>> &getLinkerOptions() {
     return LinkerOptions;
   }
 
   /// @}
-  /// @name Data Region List Access
+  /// \name Data Region List Access
   /// @{
 
   // FIXME: This is a total hack, this should not be here. Once things are
   // factored so that the streamer has direct access to the .o writer, it can
   // disappear.
-  std::vector<DataRegionData> &getDataRegions() {
-    return DataRegions;
-  }
+  std::vector<DataRegionData> &getDataRegions() { return DataRegions; }
 
-  data_region_iterator data_region_begin() {
-    return DataRegions.begin();
-  }
+  data_region_iterator data_region_begin() { return DataRegions.begin(); }
   const_data_region_iterator data_region_begin() const {
     return DataRegions.begin();
   }
 
-  data_region_iterator data_region_end() {
-    return DataRegions.end();
-  }
+  data_region_iterator data_region_end() { return DataRegions.end(); }
   const_data_region_iterator data_region_end() const {
     return DataRegions.end();
   }
@@ -1170,20 +945,18 @@ public:
   size_t data_region_size() const { return DataRegions.size(); }
 
   /// @}
-  /// @name Data Region List Access
+  /// \name Data Region List Access
   /// @{
 
   // FIXME: This is a total hack, this should not be here. Once things are
   // factored so that the streamer has direct access to the .o writer, it can
   // disappear.
-  MCLOHContainer & getLOHContainer() {
-    return LOHContainer;
-  }
-  const MCLOHContainer & getLOHContainer() const {
+  MCLOHContainer &getLOHContainer() { return LOHContainer; }
+  const MCLOHContainer &getLOHContainer() const {
     return const_cast<MCAssembler *>(this)->getLOHContainer();
   }
   /// @}
-  /// @name Backend Data Access
+  /// \name Backend Data Access
   /// @{
 
   MCSectionData &getSectionData(const MCSection &Section) const {
@@ -1192,20 +965,19 @@ public:
     return *Entry;
   }
 
-  MCSectionData &getOrCreateSectionData(const MCSection &Section,
+  MCSectionData &getOrCreateSectionData(MCSection &Section,
                                         bool *Created = nullptr) {
     MCSectionData *&Entry = SectionMap[&Section];
 
-    if (Created) *Created = !Entry;
+    if (Created)
+      *Created = !Entry;
     if (!Entry)
       Entry = new MCSectionData(Section, this);
 
     return *Entry;
   }
 
-  bool hasSymbolData(const MCSymbol &Symbol) const {
-    return SymbolMap.lookup(&Symbol) != nullptr;
-  }
+  bool hasSymbolData(const MCSymbol &Symbol) const { return Symbol.hasData(); }
 
   MCSymbolData &getSymbolData(const MCSymbol &Symbol) {
     return const_cast<MCSymbolData &>(
@@ -1213,29 +985,25 @@ public:
   }
 
   const MCSymbolData &getSymbolData(const MCSymbol &Symbol) const {
-    MCSymbolData *Entry = SymbolMap.lookup(&Symbol);
-    assert(Entry && "Missing symbol data!");
-    return *Entry;
+    return Symbol.getData();
   }
 
   MCSymbolData &getOrCreateSymbolData(const MCSymbol &Symbol,
                                       bool *Created = nullptr) {
-    MCSymbolData *&Entry = SymbolMap[&Symbol];
-
-    if (Created) *Created = !Entry;
-    if (!Entry)
-      Entry = new MCSymbolData(Symbol, nullptr, 0, this);
-
-    return *Entry;
+    if (Created)
+      *Created = !hasSymbolData(Symbol);
+    if (!hasSymbolData(Symbol)) {
+      Symbol.initializeData();
+      Symbols.push_back(&Symbol);
+    }
+    return Symbol.getData();
   }
 
   const_file_name_iterator file_names_begin() const {
     return FileNames.begin();
   }
 
-  const_file_name_iterator file_names_end() const {
-    return FileNames.end();
-  }
+  const_file_name_iterator file_names_end() const { return FileNames.end(); }
 
   void addFileName(StringRef FileName) {
     if (std::find(file_names_begin(), file_names_end(), FileName) ==
@@ -1243,10 +1011,21 @@ public:
       FileNames.push_back(FileName);
   }
 
+  /// \brief Write the necessary bundle padding to the given object writer.
+  /// Expects a fragment \p F containing instructions and its size \p FSize.
+  void writeFragmentPadding(const MCFragment &F, uint64_t FSize,
+                            MCObjectWriter *OW) const;
+
   /// @}
 
   void dump();
 };
+
+/// \brief Compute the amount of padding required before the fragment \p F to
+/// obey bundling restrictions, where \p FOffset is the fragment's offset in
+/// its section and \p FSize is the fragment's size.
+uint64_t computeBundlePadding(const MCAssembler &Assembler, const MCFragment *F,
+                              uint64_t FOffset, uint64_t FSize);
 
 } // end namespace llvm
 

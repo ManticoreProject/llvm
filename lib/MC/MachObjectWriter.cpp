@@ -23,6 +23,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MachO.h"
+#include "llvm/Support/raw_ostream.h"
 #include <vector>
 using namespace llvm;
 
@@ -38,15 +39,14 @@ void MachObjectWriter::reset() {
   MCObjectWriter::reset();
 }
 
-bool MachObjectWriter::
-doesSymbolRequireExternRelocation(const MCSymbolData *SD) {
+bool MachObjectWriter::doesSymbolRequireExternRelocation(const MCSymbol &S) {
   // Undefined symbols are always extern.
-  if (SD->getSymbol().isUndefined())
+  if (S.isUndefined())
     return true;
 
   // References to weak definitions require external relocation entries; the
   // definition may not always be the one in the same object file.
-  if (SD->getFlags() & SF_WeakDefinition)
+  if (S.getData().getFlags() & SF_WeakDefinition)
     return true;
 
   // Otherwise, we can use an internal relocation.
@@ -55,8 +55,7 @@ doesSymbolRequireExternRelocation(const MCSymbolData *SD) {
 
 bool MachObjectWriter::
 MachSymbolData::operator<(const MachSymbolData &RHS) const {
-  return SymbolData->getSymbol().getName() <
-    RHS.SymbolData->getSymbol().getName();
+  return Symbol->getName() < RHS.Symbol->getName();
 }
 
 bool MachObjectWriter::isFixupKindPCRel(const MCAssembler &Asm, unsigned Kind) {
@@ -72,10 +71,8 @@ uint64_t MachObjectWriter::getFragmentAddress(const MCFragment *Fragment,
     Layout.getFragmentOffset(Fragment);
 }
 
-uint64_t MachObjectWriter::getSymbolAddress(const MCSymbolData* SD,
+uint64_t MachObjectWriter::getSymbolAddress(const MCSymbol &S,
                                             const MCAsmLayout &Layout) const {
-  const MCSymbol &S = SD->getSymbol();
-
   // If this is a variable, then recursively evaluate now.
   if (S.isVariable()) {
     if (const MCConstantExpr *C =
@@ -98,29 +95,27 @@ uint64_t MachObjectWriter::getSymbolAddress(const MCSymbolData* SD,
 
     uint64_t Address = Target.getConstant();
     if (Target.getSymA())
-      Address += getSymbolAddress(&Layout.getAssembler().getSymbolData(
-                                    Target.getSymA()->getSymbol()), Layout);
+      Address += getSymbolAddress(Target.getSymA()->getSymbol(), Layout);
     if (Target.getSymB())
-      Address += getSymbolAddress(&Layout.getAssembler().getSymbolData(
-                                    Target.getSymB()->getSymbol()), Layout);
+      Address += getSymbolAddress(Target.getSymB()->getSymbol(), Layout);
     return Address;
   }
 
-  return getSectionAddress(SD->getFragment()->getParent()) +
-    Layout.getSymbolOffset(SD);
+  return getSectionAddress(S.getData().getFragment()->getParent()) +
+         Layout.getSymbolOffset(S);
 }
 
 uint64_t MachObjectWriter::getPaddingSize(const MCSectionData *SD,
                                           const MCAsmLayout &Layout) const {
   uint64_t EndAddr = getSectionAddress(SD) + Layout.getSectionAddressSize(SD);
-  unsigned Next = SD->getLayoutOrder() + 1;
+  unsigned Next = SD->getSection().getLayoutOrder() + 1;
   if (Next >= Layout.getSectionOrder().size())
     return 0;
 
   const MCSectionData &NextSD = *Layout.getSectionOrder()[Next];
   if (NextSD.getSection().isVirtualSection())
     return 0;
-  return OffsetToAlignment(EndAddr, NextSD.getAlignment());
+  return OffsetToAlignment(EndAddr, NextSD.getSection().getAlignment());
 }
 
 void MachObjectWriter::WriteHeader(unsigned NumLoadCommands,
@@ -204,9 +199,10 @@ void MachObjectWriter::WriteSection(const MCAssembler &Asm,
                                     uint64_t RelocationsStart,
                                     unsigned NumRelocations) {
   uint64_t SectionSize = Layout.getSectionAddressSize(&SD);
+  const MCSectionMachO &Section = cast<MCSectionMachO>(SD.getSection());
 
   // The offset is unused for virtual sections.
-  if (SD.getSection().isVirtualSection()) {
+  if (Section.isVirtualSection()) {
     assert(Layout.getSectionFileSize(&SD) == 0 && "Invalid file size!");
     FileOffset = 0;
   }
@@ -217,7 +213,6 @@ void MachObjectWriter::WriteSection(const MCAssembler &Asm,
   uint64_t Start = OS.tell();
   (void) Start;
 
-  const MCSectionMachO &Section = cast<MCSectionMachO>(SD.getSection());
   WriteBytes(Section.getSectionName(), 16);
   WriteBytes(Section.getSegmentName(), 16);
   if (is64Bit()) {
@@ -230,11 +225,11 @@ void MachObjectWriter::WriteSection(const MCAssembler &Asm,
   Write32(FileOffset);
 
   unsigned Flags = Section.getTypeAndAttributes();
-  if (SD.hasInstructions())
+  if (Section.hasInstructions())
     Flags |= MachO::S_ATTR_SOME_INSTRUCTIONS;
 
-  assert(isPowerOf2_32(SD.getAlignment()) && "Invalid alignment!");
-  Write32(Log2_32(SD.getAlignment()));
+  assert(isPowerOf2_32(Section.getAlignment()) && "Invalid alignment!");
+  Write32(Log2_32(Section.getAlignment()));
   Write32(NumRelocations ? RelocationsStart : 0);
   Write32(NumRelocations);
   Write32(Flags);
@@ -306,37 +301,51 @@ void MachObjectWriter::WriteDysymtabLoadCommand(uint32_t FirstLocalSymbol,
 MachObjectWriter::MachSymbolData *
 MachObjectWriter::findSymbolData(const MCSymbol &Sym) {
   for (auto &Entry : LocalSymbolData)
-    if (&Entry.SymbolData->getSymbol() == &Sym)
+    if (Entry.Symbol == &Sym)
       return &Entry;
 
   for (auto &Entry : ExternalSymbolData)
-    if (&Entry.SymbolData->getSymbol() == &Sym)
+    if (Entry.Symbol == &Sym)
       return &Entry;
 
   for (auto &Entry : UndefinedSymbolData)
-    if (&Entry.SymbolData->getSymbol() == &Sym)
+    if (Entry.Symbol == &Sym)
       return &Entry;
 
   return nullptr;
 }
 
+const MCSymbol &MachObjectWriter::findAliasedSymbol(const MCSymbol &Sym) const {
+  const MCSymbol *S = &Sym;
+  while (S->isVariable()) {
+    const MCExpr *Value = S->getVariableValue();
+    const auto *Ref = dyn_cast<MCSymbolRefExpr>(Value);
+    if (!Ref)
+      return *S;
+    S = &Ref->getSymbol();
+  }
+  return *S;
+}
+
 void MachObjectWriter::WriteNlist(MachSymbolData &MSD,
                                   const MCAsmLayout &Layout) {
-  MCSymbolData &Data = *MSD.SymbolData;
-  const MCSymbol *Symbol = &Data.getSymbol();
-  const MCSymbol *AliasedSymbol = &Symbol->AliasedSymbol();
+  const MCSymbol *Symbol = MSD.Symbol;
+  MCSymbolData &Data = Symbol->getData();
+  const MCSymbol *AliasedSymbol = &findAliasedSymbol(*Symbol);
   uint8_t SectionIndex = MSD.SectionIndex;
   uint8_t Type = 0;
   uint16_t Flags = Data.getFlags();
   uint64_t Address = 0;
   bool IsAlias = Symbol != AliasedSymbol;
 
+  const MCSymbol &OrigSymbol = *Symbol;
   MachSymbolData *AliaseeInfo;
   if (IsAlias) {
     AliaseeInfo = findSymbolData(*AliasedSymbol);
     if (AliaseeInfo)
       SectionIndex = AliaseeInfo->SectionIndex;
     Symbol = AliasedSymbol;
+    // FIXME: Should this update Data as well?  Do we need OrigSymbol at all?
   }
 
   // Set the N_TYPE bits. See <mach-o/nlist.h>.
@@ -364,7 +373,7 @@ void MachObjectWriter::WriteNlist(MachSymbolData &MSD,
   if (IsAlias && Symbol->isUndefined())
     Address = AliaseeInfo->StringIndex;
   else if (Symbol->isDefined())
-    Address = getSymbolAddress(&Data, Layout);
+    Address = getSymbolAddress(OrigSymbol, Layout);
   else if (Data.isCommon()) {
     // Common symbols are encoded with the size in the address
     // field, and their alignment in the flags.
@@ -418,7 +427,7 @@ void MachObjectWriter::WriteLinkeditLoadCommand(uint32_t Type,
 static unsigned ComputeLinkerOptionsLoadCommandSize(
   const std::vector<std::string> &Options, bool is64Bit)
 {
-  unsigned Size = sizeof(MachO::linker_options_command);
+  unsigned Size = sizeof(MachO::linker_option_command);
   for (unsigned i = 0, e = Options.size(); i != e; ++i)
     Size += Options[i].size() + 1;
   return RoundUpToAlignment(Size, is64Bit ? 8 : 4);
@@ -431,10 +440,10 @@ void MachObjectWriter::WriteLinkerOptionsLoadCommand(
   uint64_t Start = OS.tell();
   (void) Start;
 
-  Write32(MachO::LC_LINKER_OPTIONS);
+  Write32(MachO::LC_LINKER_OPTION);
   Write32(Size);
   Write32(Options.size());
-  uint64_t BytesWritten = sizeof(MachO::linker_options_command);
+  uint64_t BytesWritten = sizeof(MachO::linker_option_command);
   for (unsigned i = 0, e = Options.size(); i != e; ++i) {
     // Write each string, including the null byte.
     const std::string &Option = Options[i];
@@ -448,14 +457,11 @@ void MachObjectWriter::WriteLinkerOptionsLoadCommand(
   assert(OS.tell() - Start == Size);
 }
 
-
-void MachObjectWriter::RecordRelocation(const MCAssembler &Asm,
+void MachObjectWriter::RecordRelocation(MCAssembler &Asm,
                                         const MCAsmLayout &Layout,
                                         const MCFragment *Fragment,
-                                        const MCFixup &Fixup,
-                                        MCValue Target,
-                                        bool &IsPCRel,
-                                        uint64_t &FixedValue) {
+                                        const MCFixup &Fixup, MCValue Target,
+                                        bool &IsPCRel, uint64_t &FixedValue) {
   TargetObjectWriter->RecordRelocation(this, Asm, Layout, Fragment, Fixup,
                                        Target, FixedValue);
 }
@@ -538,8 +544,7 @@ void MachObjectWriter::ComputeSymbolTable(
   assert(Index <= 256 && "Too many sections!");
 
   // Build the string table.
-  for (MCSymbolData &SD : Asm.symbols()) {
-    const MCSymbol &Symbol = SD.getSymbol();
+  for (const MCSymbol &Symbol : Asm.symbols()) {
     if (!Asm.isSymbolLinkerVisible(Symbol))
       continue;
 
@@ -552,8 +557,8 @@ void MachObjectWriter::ComputeSymbolTable(
   // The particular order that we collect and then sort the symbols is chosen to
   // match 'as'. Even though it doesn't matter for correctness, this is
   // important for letting us diff .o files.
-  for (MCSymbolData &SD : Asm.symbols()) {
-    const MCSymbol &Symbol = SD.getSymbol();
+  for (const MCSymbol &Symbol : Asm.symbols()) {
+    MCSymbolData &SD = Symbol.getData();
 
     // Ignore non-linker visible symbols.
     if (!Asm.isSymbolLinkerVisible(Symbol))
@@ -563,7 +568,7 @@ void MachObjectWriter::ComputeSymbolTable(
       continue;
 
     MachSymbolData MSD;
-    MSD.SymbolData = &SD;
+    MSD.Symbol = &Symbol;
     MSD.StringIndex = StringTable.getOffset(Symbol.getName());
 
     if (Symbol.isUndefined()) {
@@ -580,8 +585,8 @@ void MachObjectWriter::ComputeSymbolTable(
   }
 
   // Now add the data for local symbols.
-  for (MCSymbolData &SD : Asm.symbols()) {
-    const MCSymbol &Symbol = SD.getSymbol();
+  for (const MCSymbol &Symbol : Asm.symbols()) {
+    MCSymbolData &SD = Symbol.getData();
 
     // Ignore non-linker visible symbols.
     if (!Asm.isSymbolLinkerVisible(Symbol))
@@ -591,7 +596,7 @@ void MachObjectWriter::ComputeSymbolTable(
       continue;
 
     MachSymbolData MSD;
-    MSD.SymbolData = &SD;
+    MSD.Symbol = &Symbol;
     MSD.StringIndex = StringTable.getOffset(Symbol.getName());
 
     if (Symbol.isAbsolute()) {
@@ -611,11 +616,27 @@ void MachObjectWriter::ComputeSymbolTable(
   // Set the symbol indices.
   Index = 0;
   for (unsigned i = 0, e = LocalSymbolData.size(); i != e; ++i)
-    LocalSymbolData[i].SymbolData->setIndex(Index++);
+    LocalSymbolData[i].Symbol->setIndex(Index++);
   for (unsigned i = 0, e = ExternalSymbolData.size(); i != e; ++i)
-    ExternalSymbolData[i].SymbolData->setIndex(Index++);
+    ExternalSymbolData[i].Symbol->setIndex(Index++);
   for (unsigned i = 0, e = UndefinedSymbolData.size(); i != e; ++i)
-    UndefinedSymbolData[i].SymbolData->setIndex(Index++);
+    UndefinedSymbolData[i].Symbol->setIndex(Index++);
+
+  for (const MCSectionData &SD : Asm) {
+    std::vector<RelAndSymbol> &Relocs = Relocations[&SD];
+    for (RelAndSymbol &Rel : Relocs) {
+      if (!Rel.Sym)
+        continue;
+
+      // Set the Index and the IsExtern bit.
+      unsigned Index = Rel.Sym->getIndex();
+      assert(isInt<24>(Index));
+      if (IsLittleEndian)
+        Rel.MRE.r_word1 = (Rel.MRE.r_word1 & (~0U << 24)) | Index | (1 << 27);
+      else
+        Rel.MRE.r_word1 = (Rel.MRE.r_word1 & 0xff) | Index << 8 | (1 << 4);
+    }
+  }
 }
 
 void MachObjectWriter::computeSectionAddresses(const MCAssembler &Asm,
@@ -624,7 +645,8 @@ void MachObjectWriter::computeSectionAddresses(const MCAssembler &Asm,
   const SmallVectorImpl<MCSectionData*> &Order = Layout.getSectionOrder();
   for (int i = 0, n = Order.size(); i != n ; ++i) {
     const MCSectionData *SD = Order[i];
-    StartAddress = RoundUpToAlignment(StartAddress, SD->getAlignment());
+    StartAddress =
+        RoundUpToAlignment(StartAddress, SD->getSection().getAlignment());
     SectionAddress[SD] = StartAddress;
     StartAddress += Layout.getSectionAddressSize(SD);
 
@@ -635,45 +657,17 @@ void MachObjectWriter::computeSectionAddresses(const MCAssembler &Asm,
   }
 }
 
-void MachObjectWriter::markAbsoluteVariableSymbols(MCAssembler &Asm,
-                                                   const MCAsmLayout &Layout) {
-  for (MCSymbolData &SD : Asm.symbols()) {
-    if (!SD.getSymbol().isVariable())
-      continue;
-
-    // Is the variable is a symbol difference (SA - SB + C) expression,
-    // and neither symbol is external, mark the variable as absolute.
-    const MCExpr *Expr = SD.getSymbol().getVariableValue();
-    MCValue Value;
-    if (Expr->EvaluateAsRelocatable(Value, &Layout, nullptr)) {
-      if (Value.getSymA() && Value.getSymB())
-        const_cast<MCSymbol*>(&SD.getSymbol())->setAbsolute();
-    }
-  }
-}
-
 void MachObjectWriter::ExecutePostLayoutBinding(MCAssembler &Asm,
                                                 const MCAsmLayout &Layout) {
   computeSectionAddresses(Asm, Layout);
 
   // Create symbol data for any indirect symbols.
   BindIndirectSymbols(Asm);
-
-  // Mark symbol difference expressions in variables (from .set or = directives)
-  // as absolute.
-  markAbsoluteVariableSymbols(Asm, Layout);
-
-  // Compute symbol table information and bind symbol indices.
-  ComputeSymbolTable(Asm, LocalSymbolData, ExternalSymbolData,
-                     UndefinedSymbolData);
 }
 
-bool MachObjectWriter::
-IsSymbolRefDifferenceFullyResolvedImpl(const MCAssembler &Asm,
-                                       const MCSymbolData &DataA,
-                                       const MCFragment &FB,
-                                       bool InSet,
-                                       bool IsPCRel) const {
+bool MachObjectWriter::IsSymbolRefDifferenceFullyResolvedImpl(
+    const MCAssembler &Asm, const MCSymbol &SymA, const MCFragment &FB,
+    bool InSet, bool IsPCRel) const {
   if (InSet)
     return true;
 
@@ -682,9 +676,7 @@ IsSymbolRefDifferenceFullyResolvedImpl(const MCAssembler &Asm,
   //   - addr(atom(B)) - offset(B)
   // and the offsets are not relocatable, so the fixup is fully resolved when
   //  addr(atom(A)) - addr(atom(B)) == 0.
-  const MCSymbolData *A_Base = nullptr, *B_Base = nullptr;
-
-  const MCSymbol &SA = DataA.getSymbol().AliasedSymbol();
+  const MCSymbol &SA = findAliasedSymbol(SymA);
   const MCSection &SecA = SA.getSection();
   const MCSection &SecB = FB.getParent()->getSection();
 
@@ -736,11 +728,8 @@ IsSymbolRefDifferenceFullyResolvedImpl(const MCAssembler &Asm,
   if (!FA)
     return false;
 
-  A_Base = FA->getAtom();
-  B_Base = FB.getAtom();
-
   // If the atoms are the same, they are guaranteed to have the same address.
-  if (A_Base == B_Base)
+  if (FA->getAtom() == FB.getAtom())
     return true;
 
   // Otherwise, we can't prove this is fully resolved.
@@ -749,6 +738,10 @@ IsSymbolRefDifferenceFullyResolvedImpl(const MCAssembler &Asm,
 
 void MachObjectWriter::WriteObject(MCAssembler &Asm,
                                    const MCAsmLayout &Layout) {
+  // Compute symbol table information and bind symbol indices.
+  ComputeSymbolTable(Asm, LocalSymbolData, ExternalSymbolData,
+                     UndefinedSymbolData);
+
   unsigned NumSections = Asm.size();
   const MCAssembler::VersionMinInfoType &VersionInfo =
     Layout.getAssembler().getVersionMinInfo();
@@ -839,7 +832,7 @@ void MachObjectWriter::WriteObject(MCAssembler &Asm,
   uint64_t RelocTableEnd = SectionDataStart + SectionDataFileSize;
   for (MCAssembler::const_iterator it = Asm.begin(),
          ie = Asm.end(); it != ie; ++it) {
-    std::vector<MachO::any_relocation_info> &Relocs = Relocations[it];
+    std::vector<RelAndSymbol> &Relocs = Relocations[it];
     unsigned NumRelocs = Relocs.size();
     uint64_t SectionStart = SectionDataStart + getSectionAddress(it);
     WriteSection(Asm, Layout, *it, SectionStart, RelocTableEnd, NumRelocs);
@@ -921,8 +914,7 @@ void MachObjectWriter::WriteObject(MCAssembler &Asm,
     Asm.writeSectionData(it, Layout);
 
     uint64_t Pad = getPaddingSize(it, Layout);
-    for (unsigned int i = 0; i < Pad; ++i)
-      Write8(0);
+    WriteZeros(Pad);
   }
 
   // Write the extra padding.
@@ -933,10 +925,10 @@ void MachObjectWriter::WriteObject(MCAssembler &Asm,
          ie = Asm.end(); it != ie; ++it) {
     // Write the section relocation entries, in reverse order to match 'as'
     // (approximately, the exact algorithm is more complicated than this).
-    std::vector<MachO::any_relocation_info> &Relocs = Relocations[it];
+    std::vector<RelAndSymbol> &Relocs = Relocations[it];
     for (unsigned i = 0, e = Relocs.size(); i != e; ++i) {
-      Write32(Relocs[e - i - 1].r_word0);
-      Write32(Relocs[e - i - 1].r_word1);
+      Write32(Relocs[e - i - 1].MRE.r_word0);
+      Write32(Relocs[e - i - 1].MRE.r_word1);
     }
   }
 
@@ -945,12 +937,8 @@ void MachObjectWriter::WriteObject(MCAssembler &Asm,
          it = Asm.data_region_begin(), ie = Asm.data_region_end();
          it != ie; ++it) {
     const DataRegionData *Data = &(*it);
-    uint64_t Start =
-      getSymbolAddress(&Layout.getAssembler().getSymbolData(*Data->Start),
-                       Layout);
-    uint64_t End =
-      getSymbolAddress(&Layout.getAssembler().getSymbolData(*Data->End),
-                       Layout);
+    uint64_t Start = getSymbolAddress(*Data->Start, Layout);
+    uint64_t End = getSymbolAddress(*Data->End, Layout);
     DEBUG(dbgs() << "data in code region-- kind: " << Data->Kind
                  << "  start: " << Start << "(" << Data->Start->getName() << ")"
                  << "  end: " << End << "(" << Data->End->getName() << ")"
@@ -994,7 +982,7 @@ void MachObjectWriter::WriteObject(MCAssembler &Asm,
         }
       }
 
-      Write32(Asm.getSymbolData(*it->Symbol).getIndex());
+      Write32(it->Symbol->getIndex());
     }
 
     // FIXME: Check that offsets match computed ones.
@@ -1013,7 +1001,7 @@ void MachObjectWriter::WriteObject(MCAssembler &Asm,
 }
 
 MCObjectWriter *llvm::createMachObjectWriter(MCMachObjectTargetWriter *MOTW,
-                                             raw_ostream &OS,
+                                             raw_pwrite_stream &OS,
                                              bool IsLittleEndian) {
   return new MachObjectWriter(MOTW, OS, IsLittleEndian);
 }

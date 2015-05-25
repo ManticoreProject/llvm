@@ -45,6 +45,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 
 using namespace llvm;
@@ -55,7 +56,6 @@ namespace {
 
 class SILoadStoreOptimizer : public MachineFunctionPass {
 private:
-  const TargetMachine *TM;
   const SIInstrInfo *TII;
   const SIRegisterInfo *TRI;
   MachineRegisterInfo *MRI;
@@ -86,20 +86,11 @@ private:
 public:
   static char ID;
 
-  SILoadStoreOptimizer() :
-    MachineFunctionPass(ID),
-    TM(nullptr),
-    TII(nullptr),
-    TRI(nullptr),
-    MRI(nullptr),
-    LIS(nullptr) {
+  SILoadStoreOptimizer()
+      : MachineFunctionPass(ID), TII(nullptr), TRI(nullptr), MRI(nullptr),
+        LIS(nullptr) {}
 
-  }
-
-  SILoadStoreOptimizer(const TargetMachine &TM_) :
-    MachineFunctionPass(ID),
-    TM(&TM_),
-    TII(static_cast<const SIInstrInfo*>(TM->getSubtargetImpl()->getInstrInfo())) {
+  SILoadStoreOptimizer(const TargetMachine &TM_) : MachineFunctionPass(ID) {
     initializeSILoadStoreOptimizerPass(*PassRegistry::getPassRegistry());
   }
 
@@ -258,14 +249,12 @@ MachineBasicBlock::iterator  SILoadStoreOptimizer::mergeRead2Pair(
   DebugLoc DL = I->getDebugLoc();
   MachineInstrBuilder Read2
     = BuildMI(*MBB, I, DL, Read2Desc, DestReg)
-    .addImm(0) // gds
     .addOperand(*AddrReg) // addr
     .addImm(NewOffset0) // offset0
     .addImm(NewOffset1) // offset1
+    .addImm(0) // gds
     .addMemOperand(*I->memoperands_begin())
     .addMemOperand(*Paired->memoperands_begin());
-
-  LIS->InsertMachineInstrInMaps(Read2);
 
   unsigned SubRegIdx0 = (EltSize == 4) ? AMDGPU::sub0 : AMDGPU::sub0_sub1;
   unsigned SubRegIdx1 = (EltSize == 4) ? AMDGPU::sub1 : AMDGPU::sub2_sub3;
@@ -273,7 +262,9 @@ MachineBasicBlock::iterator  SILoadStoreOptimizer::mergeRead2Pair(
   updateRegDefsUses(DestReg1, DestReg, SubRegIdx1);
 
   LIS->RemoveMachineInstrFromMaps(I);
-  LIS->RemoveMachineInstrFromMaps(Paired);
+  // Replacing Paired in the maps with Read2 allows us to avoid updating the
+  // live range for the m0 register.
+  LIS->ReplaceMachineInstrInMaps(Paired, Read2);
   I->eraseFromParent();
   Paired->eraseFromParent();
 
@@ -325,14 +316,21 @@ MachineBasicBlock::iterator SILoadStoreOptimizer::mergeWrite2Pair(
   const MCInstrDesc &Write2Desc = TII->get(Opc);
   DebugLoc DL = I->getDebugLoc();
 
+  // repairLiveintervalsInRange() doesn't handle physical register, so we have
+  // to update the M0 range manually.
+  SlotIndex PairedIndex = LIS->getInstructionIndex(Paired);
+  LiveRange &M0Range = LIS->getRegUnit(*MCRegUnitIterator(AMDGPU::M0, TRI));
+  LiveRange::Segment *M0Segment = M0Range.getSegmentContaining(PairedIndex);
+  bool UpdateM0Range = M0Segment->end == PairedIndex.getRegSlot();
+
   MachineInstrBuilder Write2
     = BuildMI(*MBB, I, DL, Write2Desc)
-    .addImm(0) // gds
     .addOperand(*Addr) // addr
     .addOperand(*Data0) // data0
     .addOperand(*Data1) // data1
     .addImm(NewOffset0) // offset0
     .addImm(NewOffset1) // offset1
+    .addImm(0) // gds
     .addMemOperand(*I->memoperands_begin())
     .addMemOperand(*Paired->memoperands_begin());
 
@@ -344,7 +342,13 @@ MachineBasicBlock::iterator SILoadStoreOptimizer::mergeWrite2Pair(
   I->eraseFromParent();
   Paired->eraseFromParent();
 
+  // This doesn't handle physical registers like M0
   LIS->repairIntervalsInRange(MBB, Write2, Write2, OrigRegs);
+
+  if (UpdateM0Range) {
+    SlotIndex Write2Index = LIS->getInstructionIndex(Write2);
+    M0Segment->end = Write2Index.getRegSlot();
+  }
 
   DEBUG(dbgs() << "Inserted write2 inst: " << *Write2 << '\n');
   return Write2.getInstr();
@@ -397,9 +401,9 @@ bool SILoadStoreOptimizer::optimizeBlock(MachineBasicBlock &MBB) {
 }
 
 bool SILoadStoreOptimizer::runOnMachineFunction(MachineFunction &MF) {
-  const TargetSubtargetInfo *STM = MF.getTarget().getSubtargetImpl();
-  TRI = static_cast<const SIRegisterInfo*>(STM->getRegisterInfo());
-  TII = static_cast<const SIInstrInfo*>(STM->getInstrInfo());
+  const TargetSubtargetInfo &STM = MF.getSubtarget();
+  TRI = static_cast<const SIRegisterInfo *>(STM.getRegisterInfo());
+  TII = static_cast<const SIInstrInfo *>(STM.getInstrInfo());
   MRI = &MF.getRegInfo();
 
   LIS = &getAnalysis<LiveIntervals>();

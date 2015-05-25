@@ -10,7 +10,7 @@
 #define LLVM_MC_MCDISASSEMBLER_H
 
 #include "llvm-c/Disassembler.h"
-#include "llvm/MC/MCRelocationInfo.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/MC/MCSymbolizer.h"
 #include "llvm/Support/DataTypes.h"
 
@@ -18,7 +18,6 @@ namespace llvm {
 
 class MCInst;
 class MCSubtargetInfo;
-class MemoryObject;
 class raw_ostream;
 class MCContext;
 
@@ -61,23 +60,22 @@ public:
 
   /// Returns the disassembly of a single instruction.
   ///
-  /// @param Instr    - An MCInst to populate with the contents of the
+  /// \param Instr    - An MCInst to populate with the contents of the
   ///                   instruction.
-  /// @param Size     - A value to populate with the size of the instruction, or
+  /// \param Size     - A value to populate with the size of the instruction, or
   ///                   the number of bytes consumed while attempting to decode
   ///                   an invalid instruction.
-  /// @param Region   - The memory object to use as a source for machine code.
-  /// @param Address  - The address, in the memory space of region, of the first
+  /// \param Address  - The address, in the memory space of region, of the first
   ///                   byte of the instruction.
-  /// @param VStream  - The stream to print warnings and diagnostic messages on.
-  /// @param CStream  - The stream to print comments and annotations on.
-  /// @return         - MCDisassembler::Success if the instruction is valid,
+  /// \param VStream  - The stream to print warnings and diagnostic messages on.
+  /// \param CStream  - The stream to print comments and annotations on.
+  /// \return         - MCDisassembler::Success if the instruction is valid,
   ///                   MCDisassembler::SoftFail if the instruction was
   ///                                            disassemblable but invalid,
   ///                   MCDisassembler::Fail if the instruction was invalid.
   virtual DecodeStatus getInstruction(MCInst &Instr, uint64_t &Size,
-                                      const MemoryObject &Region,
-                                      uint64_t Address, raw_ostream &VStream,
+                                      ArrayRef<uint8_t> Bytes, uint64_t Address,
+                                      raw_ostream &VStream,
                                       raw_ostream &CStream) const = 0;
 
 private:

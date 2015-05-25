@@ -18,12 +18,12 @@
 
 using namespace llvm;
 
-void SparcELFMCAsmInfo::anchor() { }
+void SparcELFMCAsmInfo::anchor() {}
 
 SparcELFMCAsmInfo::SparcELFMCAsmInfo(StringRef TT) {
-  IsLittleEndian = false;
   Triple TheTriple(TT);
   bool isV9 = (TheTriple.getArch() == Triple::sparcv9);
+  IsLittleEndian = (TheTriple.getArch() == Triple::sparcel);
 
   if (isV9) {
     PointerSize = CalleeSaveStackSlotSize = 8;
@@ -42,9 +42,7 @@ SparcELFMCAsmInfo::SparcELFMCAsmInfo(StringRef TT) {
   SunStyleELFSectionSwitchSyntax = true;
   UsesELFSectionDirectiveForBSS = true;
 
-  if (TheTriple.getOS() == llvm::Triple::Solaris ||
-      TheTriple.getOS() == llvm::Triple::OpenBSD)
-    UseIntegratedAssembler = true;
+  UseIntegratedAssembler = true;
 }
 
 const MCExpr*

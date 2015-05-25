@@ -189,7 +189,15 @@ struct Elf_Sym_Impl : Elf_Sym_Base<ELFT> {
   }
 
   /// Access to the STV_xxx flag stored in the first two bits of st_other.
+  /// STV_DEFAULT: 0
+  /// STV_INTERNAL: 1
+  /// STV_HIDDEN: 2
+  /// STV_PROTECTED: 3
   unsigned char getVisibility() const { return st_other & 0x3; }
+  void setVisibility(unsigned char v) {
+    assert(v < 4 && "Invalid value for visibility");
+    st_other = (st_other & ~0x3) | v;
+  }
 };
 
 /// Elf_Versym: This is the structure of entries in the SHT_GNU_versym section
@@ -302,7 +310,10 @@ struct Elf_Rel_Base<ELFType<TargetEndianness, MaxAlign, false>, false> {
     assert(!isMips64EL);
     return r_info;
   }
-  void setRInfo(uint32_t R) { r_info = R; }
+  void setRInfo(uint32_t R, bool IsMips64EL) {
+    assert(!IsMips64EL);
+    r_info = R;
+  }
 };
 
 template <endianness TargetEndianness, std::size_t MaxAlign>
@@ -321,9 +332,12 @@ struct Elf_Rel_Base<ELFType<TargetEndianness, MaxAlign, true>, false> {
     return (t << 32) | ((t >> 8) & 0xff000000) | ((t >> 24) & 0x00ff0000) |
            ((t >> 40) & 0x0000ff00) | ((t >> 56) & 0x000000ff);
   }
-  void setRInfo(uint64_t R) {
-    // FIXME: Add mips64el support.
-    r_info = R;
+  void setRInfo(uint64_t R, bool IsMips64EL) {
+    if (IsMips64EL)
+      r_info = (R >> 32) | ((R & 0xff000000) << 8) | ((R & 0x00ff0000) << 24) |
+               ((R & 0x0000ff00) << 40) | ((R & 0x000000ff) << 56);
+    else
+      r_info = R;
   }
 };
 
@@ -338,7 +352,10 @@ struct Elf_Rel_Base<ELFType<TargetEndianness, MaxAlign, false>, true> {
     assert(!isMips64EL);
     return r_info;
   }
-  void setRInfo(uint32_t R) { r_info = R; }
+  void setRInfo(uint32_t R, bool IsMips64EL) {
+    assert(!IsMips64EL);
+    r_info = R;
+  }
 };
 
 template <endianness TargetEndianness, std::size_t MaxAlign>
@@ -358,9 +375,12 @@ struct Elf_Rel_Base<ELFType<TargetEndianness, MaxAlign, true>, true> {
     return (t << 32) | ((t >> 8) & 0xff000000) | ((t >> 24) & 0x00ff0000) |
            ((t >> 40) & 0x0000ff00) | ((t >> 56) & 0x000000ff);
   }
-  void setRInfo(uint64_t R) {
-    // FIXME: Add mips64el support.
-    r_info = R;
+  void setRInfo(uint64_t R, bool IsMips64EL) {
+    if (IsMips64EL)
+      r_info = (R >> 32) | ((R & 0xff000000) << 8) | ((R & 0x00ff0000) << 24) |
+               ((R & 0x0000ff00) << 40) | ((R & 0x000000ff) << 56);
+    else
+      r_info = R;
   }
 };
 
@@ -380,10 +400,14 @@ struct Elf_Rel_Impl<ELFType<TargetEndianness, MaxAlign, true>,
   uint32_t getType(bool isMips64EL) const {
     return (uint32_t)(this->getRInfo(isMips64EL) & 0xffffffffL);
   }
-  void setSymbol(uint32_t s) { setSymbolAndType(s, getType()); }
-  void setType(uint32_t t) { setSymbolAndType(getSymbol(), t); }
-  void setSymbolAndType(uint32_t s, uint32_t t) {
-    this->setRInfo(((uint64_t)s << 32) + (t & 0xffffffffL));
+  void setSymbol(uint32_t s, bool IsMips64EL) {
+    setSymbolAndType(s, getType(), IsMips64EL);
+  }
+  void setType(uint32_t t, bool IsMips64EL) {
+    setSymbolAndType(getSymbol(), t, IsMips64EL);
+  }
+  void setSymbolAndType(uint32_t s, uint32_t t, bool IsMips64EL) {
+    this->setRInfo(((uint64_t)s << 32) + (t & 0xffffffffL), IsMips64EL);
   }
 };
 
@@ -401,10 +425,14 @@ struct Elf_Rel_Impl<ELFType<TargetEndianness, MaxAlign, false>,
   unsigned char getType(bool isMips64EL) const {
     return (unsigned char)(this->getRInfo(isMips64EL) & 0x0ff);
   }
-  void setSymbol(uint32_t s) { setSymbolAndType(s, getType()); }
-  void setType(unsigned char t) { setSymbolAndType(getSymbol(), t); }
-  void setSymbolAndType(uint32_t s, unsigned char t) {
-    this->setRInfo((s << 8) + t);
+  void setSymbol(uint32_t s, bool IsMips64EL) {
+    setSymbolAndType(s, getType(), IsMips64EL);
+  }
+  void setType(unsigned char t, bool IsMips64EL) {
+    setSymbolAndType(getSymbol(), t, IsMips64EL);
+  }
+  void setSymbolAndType(uint32_t s, unsigned char t, bool IsMips64EL) {
+    this->setRInfo((s << 8) + t, IsMips64EL);
   }
 };
 
@@ -459,6 +487,22 @@ struct Elf_Phdr_Impl<ELFType<TargetEndianness, MaxAlign, true> > {
   Elf_Xword p_filesz; // Num. of bytes in file image of segment (may be zero)
   Elf_Xword p_memsz;  // Num. of bytes in mem image of segment (may be zero)
   Elf_Xword p_align;  // Segment alignment constraint
+};
+
+// .MIPS.abiflags section content
+template <class ELFT> struct Elf_Mips_ABIFlags {
+  LLVM_ELF_IMPORT_TYPES_ELFT(ELFT)
+  Elf_Half version;  // Version of the structure
+  uint8_t isa_level; // ISA level: 1-5, 32, and 64
+  uint8_t isa_rev;   // ISA revision (0 for MIPS I - MIPS V)
+  uint8_t gpr_size;  // General purpose registers size
+  uint8_t cpr1_size; // Co-processor 1 registers size
+  uint8_t cpr2_size; // Co-processor 2 registers size
+  uint8_t fp_abi;    // Floating-point ABI flag
+  Elf_Word isa_ext;  // Processor-specific extension
+  Elf_Word ases;     // ASEs flags
+  Elf_Word flags1;   // General flags
+  Elf_Word flags2;   // General flags
 };
 
 } // end namespace object.

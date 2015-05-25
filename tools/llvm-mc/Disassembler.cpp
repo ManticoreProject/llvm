@@ -22,7 +22,6 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/StringRefMemoryObject.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
@@ -37,9 +36,7 @@ static bool PrintInsts(const MCDisassembler &DisAsm,
                        SourceMgr &SM, raw_ostream &Out,
                        MCStreamer &Streamer, bool InAtomicBlock,
                        const MCSubtargetInfo &STI) {
-  // Wrap the vector in a MemoryObject.
-  StringRef Data((const char*)Bytes.first.data(), Bytes.first.size());
-  StringRefMemoryObject memoryObject(Data);
+  ArrayRef<uint8_t> Data(Bytes.first.data(), Bytes.first.size());
 
   // Disassemble it to strings.
   uint64_t Size;
@@ -49,7 +46,7 @@ static bool PrintInsts(const MCDisassembler &DisAsm,
     MCInst Inst;
 
     MCDisassembler::DecodeStatus S;
-    S = DisAsm.getInstruction(Inst, Size, memoryObject, Index,
+    S = DisAsm.getInstruction(Inst, Size, Data.slice(Index), Index,
                               /*REMOVE*/ nulls(), nulls());
     switch (S) {
     case MCDisassembler::Fail:
