@@ -6,6 +6,8 @@ set(LLVM_LINK_COMPONENTS
 
 add_llvm_unittest(OrcJITTests
   IndirectionUtilsTest.cpp
+  GlobalMappingLayerTest.cpp
   LazyEmittingLayerTest.cpp
+  ObjectTransformLayerTest.cpp
   OrcTestCommon.cpp
   )

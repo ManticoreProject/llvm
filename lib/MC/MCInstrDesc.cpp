@@ -19,11 +19,11 @@
 
 using namespace llvm;
 
-bool MCInstrDesc::getDeprecatedInfo(MCInst &MI, MCSubtargetInfo &STI,
+bool MCInstrDesc::getDeprecatedInfo(MCInst &MI, const MCSubtargetInfo &STI,
                                     std::string &Info) const {
   if (ComplexDeprecationInfo)
     return ComplexDeprecationInfo(MI, STI, Info);
-  if ((DeprecatedFeatureMask & STI.getFeatureBits()) != 0) {
+  if (DeprecatedFeature != -1 && STI.getFeatureBits()[DeprecatedFeature]) {
     // FIXME: it would be nice to include the subtarget feature here.
     Info = "deprecated";
     return true;

@@ -236,6 +236,8 @@ protected:
 
   Triple::ArchType Arch;
   bool IsTargetLittleEndian;
+  bool IsMipsO32ABI;
+  bool IsMipsN64ABI;
 
   // True if all sections should be passed to the memory manager, false if only
   // sections containing relocations should be. Defaults to 'false'.
@@ -301,6 +303,11 @@ protected:
     *(Addr + 5) = (Value >> 16) & 0xFF;
     *(Addr + 6) = (Value >> 8) & 0xFF;
     *(Addr + 7) = Value & 0xFF;
+  }
+
+  virtual void setMipsABI(const ObjectFile &Obj) {
+    IsMipsO32ABI = false;
+    IsMipsN64ABI = false;
   }
 
   /// Endian-aware read Read the least significant Size bytes from Src.
@@ -371,7 +378,7 @@ protected:
                                      const SectionRef &Section);
 
   // \brief Implementation of the generic part of the loadObject algorithm.
-  std::pair<unsigned, unsigned> loadObjectImpl(const object::ObjectFile &Obj);
+  ObjSectionToIDMap loadObjectImpl(const object::ObjectFile &Obj);
 
 public:
   RuntimeDyldImpl(RuntimeDyld::MemoryManager &MemMgr,

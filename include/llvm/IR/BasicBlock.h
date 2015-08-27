@@ -116,6 +116,7 @@ public:
   ///
   /// Note: this is undefined behavior if the block does not have a parent.
   const Module *getModule() const;
+  Module *getModule();
 
   /// \brief Returns the terminator instruction if the block is well formed or
   /// null if the block is not well formed.
@@ -282,6 +283,8 @@ public:
   /// should be called while the predecessor still refers to this block.
   void removePredecessor(BasicBlock *Pred, bool DontDeleteUselessPHIs = false);
 
+  bool canSplitPredecessors() const;
+
   /// \brief Split the basic block into two basic blocks at the specified
   /// instruction.
   ///
@@ -307,6 +310,9 @@ public:
   /// \brief Update all phi nodes in this basic block's successors to refer to
   /// basic block \p New instead of to it.
   void replaceSuccessorsPhiUsesWith(BasicBlock *New);
+
+  /// \brief Return true if this basic block is an exception handling block.
+  bool isEHPad() const { return getFirstNonPHI()->isEHPad(); }
 
   /// \brief Return true if this basic block is a landing pad.
   ///

@@ -74,21 +74,18 @@
 // 1) We only considers n-ary adds for now. This should be extended and
 // generalized.
 //
-// 2) Besides arithmetic operations, similar reassociation can be applied to
-// GEPs. For example, if
-//   X = &arr[a]
-// dominates
-//   Y = &arr[a + b]
-// we may rewrite Y into X + b.
-//
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PatternMatch.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/Local.h"
 using namespace llvm;
@@ -113,10 +110,11 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addPreserved<DominatorTreeWrapperPass>();
-    AU.addPreserved<ScalarEvolution>();
+    AU.addPreserved<ScalarEvolutionWrapperPass>();
     AU.addPreserved<TargetLibraryInfoWrapperPass>();
+    AU.addRequired<AssumptionCacheTracker>();
     AU.addRequired<DominatorTreeWrapperPass>();
-    AU.addRequired<ScalarEvolution>();
+    AU.addRequired<ScalarEvolutionWrapperPass>();
     AU.addRequired<TargetLibraryInfoWrapperPass>();
     AU.addRequired<TargetTransformInfoWrapperPass>();
     AU.setPreservesCFG();
@@ -164,11 +162,12 @@ private:
   // to be an index of GEP.
   bool requiresSignExtension(Value *Index, GetElementPtrInst *GEP);
 
+  AssumptionCache *AC;
+  const DataLayout *DL;
   DominatorTree *DT;
   ScalarEvolution *SE;
   TargetLibraryInfo *TLI;
   TargetTransformInfo *TTI;
-  const DataLayout *DL;
   // A lookup table quickly telling which instructions compute the given SCEV.
   // Note that there can be multiple instructions at different locations
   // computing to the same SCEV, so we map a SCEV to an instruction list.  For
@@ -185,8 +184,9 @@ private:
 char NaryReassociate::ID = 0;
 INITIALIZE_PASS_BEGIN(NaryReassociate, "nary-reassociate", "Nary reassociation",
                       false, false)
+INITIALIZE_PASS_DEPENDENCY(AssumptionCacheTracker)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(ScalarEvolution)
+INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
 INITIALIZE_PASS_END(NaryReassociate, "nary-reassociate", "Nary reassociation",
@@ -200,8 +200,9 @@ bool NaryReassociate::runOnFunction(Function &F) {
   if (skipOptnoneFunction(F))
     return false;
 
+  AC = &getAnalysis<AssumptionCacheTracker>().getAssumptionCache(F);
   DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  SE = &getAnalysis<ScalarEvolution>();
+  SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   TLI = &getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
   TTI = &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
 
@@ -234,6 +235,7 @@ bool NaryReassociate::doOneIteration(Function &F) {
     BasicBlock *BB = Node->getBlock();
     for (auto I = BB->begin(); I != BB->end(); ++I) {
       if (SE->isSCEVable(I->getType()) && isPotentiallyNaryReassociable(I)) {
+        const SCEV *OldSCEV = SE->getSCEV(I);
         if (Instruction *NewI = tryReassociate(I)) {
           Changed = true;
           SE->forgetValue(I);
@@ -243,7 +245,28 @@ bool NaryReassociate::doOneIteration(Function &F) {
         }
         // Add the rewritten instruction to SeenExprs; the original instruction
         // is deleted.
-        SeenExprs[SE->getSCEV(I)].push_back(I);
+        const SCEV *NewSCEV = SE->getSCEV(I);
+        SeenExprs[NewSCEV].push_back(I);
+        // Ideally, NewSCEV should equal OldSCEV because tryReassociate(I)
+        // is equivalent to I. However, ScalarEvolution::getSCEV may
+        // weaken nsw causing NewSCEV not to equal OldSCEV. For example, suppose
+        // we reassociate
+        //   I = &a[sext(i +nsw j)] // assuming sizeof(a[0]) = 4
+        // to
+        //   NewI = &a[sext(i)] + sext(j).
+        //
+        // ScalarEvolution computes
+        //   getSCEV(I)    = a + 4 * sext(i + j)
+        //   getSCEV(newI) = a + 4 * sext(i) + 4 * sext(j)
+        // which are different SCEVs.
+        //
+        // To alleviate this issue of ScalarEvolution not always capturing
+        // equivalence, we add I to SeenExprs[OldSCEV] as well so that we can
+        // map both SCEV before and after tryReassociate(I) to I.
+        //
+        // This improvement is exercised in @reassociate_gep_nsw in nary-gep.ll.
+        if (NewSCEV != OldSCEV)
+          SeenExprs[OldSCEV].push_back(I);
       }
     }
   }
@@ -295,8 +318,10 @@ static bool isGEPFoldable(GetElementPtrInst *GEP,
       BaseOffset += DL->getStructLayout(STy)->getElementOffset(Field);
     }
   }
+
+  unsigned AddrSpace = GEP->getPointerAddressSpace();
   return TTI->isLegalAddressingMode(GEP->getType()->getElementType(), BaseGV,
-                                    BaseOffset, HasBaseReg, Scale);
+                                    BaseOffset, HasBaseReg, Scale, AddrSpace);
 }
 
 Instruction *NaryReassociate::tryReassociateGEP(GetElementPtrInst *GEP) {
@@ -326,15 +351,23 @@ GetElementPtrInst *
 NaryReassociate::tryReassociateGEPAtIndex(GetElementPtrInst *GEP, unsigned I,
                                           Type *IndexedType) {
   Value *IndexToSplit = GEP->getOperand(I + 1);
-  if (SExtInst *SExt = dyn_cast<SExtInst>(IndexToSplit))
+  if (SExtInst *SExt = dyn_cast<SExtInst>(IndexToSplit)) {
     IndexToSplit = SExt->getOperand(0);
+  } else if (ZExtInst *ZExt = dyn_cast<ZExtInst>(IndexToSplit)) {
+    // zext can be treated as sext if the source is non-negative.
+    if (isKnownNonNegative(ZExt->getOperand(0), *DL, 0, AC, GEP, DT))
+      IndexToSplit = ZExt->getOperand(0);
+  }
 
   if (AddOperator *AO = dyn_cast<AddOperator>(IndexToSplit)) {
     // If the I-th index needs sext and the underlying add is not equipped with
     // nsw, we cannot split the add because
     //   sext(LHS + RHS) != sext(LHS) + sext(RHS).
-    if (requiresSignExtension(IndexToSplit, GEP) && !AO->hasNoSignedWrap())
+    if (requiresSignExtension(IndexToSplit, GEP) &&
+        computeOverflowForSignedAdd(AO, *DL, AC, GEP, DT) !=
+            OverflowResult::NeverOverflows)
       return nullptr;
+
     Value *LHS = AO->getOperand(0), *RHS = AO->getOperand(1);
     // IndexToSplit = LHS + RHS.
     if (auto *NewGEP = tryReassociateGEPAtIndex(GEP, I, LHS, RHS, IndexedType))
@@ -349,10 +382,9 @@ NaryReassociate::tryReassociateGEPAtIndex(GetElementPtrInst *GEP, unsigned I,
   return nullptr;
 }
 
-GetElementPtrInst *
-NaryReassociate::tryReassociateGEPAtIndex(GetElementPtrInst *GEP, unsigned I,
-                                          Value *LHS, Value *RHS,
-                                          Type *IndexedType) {
+GetElementPtrInst *NaryReassociate::tryReassociateGEPAtIndex(
+    GetElementPtrInst *GEP, unsigned I, Value *LHS, Value *RHS,
+    Type *IndexedType) {
   // Look for GEP's closest dominator that has the same SCEV as GEP except that
   // the I-th index is replaced with LHS.
   SmallVector<const SCEV *, 4> IndexExprs;
@@ -360,6 +392,16 @@ NaryReassociate::tryReassociateGEPAtIndex(GetElementPtrInst *GEP, unsigned I,
     IndexExprs.push_back(SE->getSCEV(*Index));
   // Replace the I-th index with LHS.
   IndexExprs[I] = SE->getSCEV(LHS);
+  if (isKnownNonNegative(LHS, *DL, 0, AC, GEP, DT) &&
+      DL->getTypeSizeInBits(LHS->getType()) <
+          DL->getTypeSizeInBits(GEP->getOperand(I)->getType())) {
+    // Zero-extend LHS if it is non-negative. InstCombine canonicalizes sext to
+    // zext if the source operand is proved non-negative. We should do that
+    // consistently so that CandidateExpr more likely appears before. See
+    // @reassociate_gep_assume for an example of this canonicalization.
+    IndexExprs[I] =
+        SE->getZeroExtendExpr(IndexExprs[I], GEP->getOperand(I)->getType());
+  }
   const SCEV *CandidateExpr = SE->getGEPExpr(
       GEP->getSourceElementType(), SE->getSCEV(GEP->getPointerOperand()),
       IndexExprs, GEP->isInBounds());
@@ -443,11 +485,6 @@ Instruction *NaryReassociate::tryReassociateAdd(Value *LHS, Value *RHS,
 
 Instruction *NaryReassociate::tryReassociatedAdd(const SCEV *LHSExpr,
                                                  Value *RHS, Instruction *I) {
-  auto Pos = SeenExprs.find(LHSExpr);
-  // Bail out if LHSExpr is not previously seen.
-  if (Pos == SeenExprs.end())
-    return nullptr;
-
   // Look for the closest dominator LHS of I that computes LHSExpr, and replace
   // I with LHS + RHS.
   auto *LHS = findClosestMatchingDominator(LHSExpr, I);

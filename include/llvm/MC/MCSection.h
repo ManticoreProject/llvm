@@ -14,16 +14,34 @@
 #ifndef LLVM_MC_MCSECTION_H
 #define LLVM_MC_MCSECTION_H
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/ilist.h"
+#include "llvm/ADT/ilist_node.h"
 #include "llvm/MC/SectionKind.h"
 #include "llvm/Support/Compiler.h"
 
 namespace llvm {
+class MCAssembler;
 class MCAsmInfo;
 class MCContext;
 class MCExpr;
+class MCFragment;
+class MCSection;
 class MCSymbol;
 class raw_ostream;
+
+template<>
+struct ilist_node_traits<MCFragment> {
+  MCFragment *createNode(const MCFragment &V);
+  static void deleteNode(MCFragment *V);
+
+  void addNodeToList(MCFragment *) {}
+  void removeNodeFromList(MCFragment *) {}
+  void transferNodesFromList(ilist_node_traits &    /*SrcTraits*/,
+                             ilist_iterator<MCFragment> /*first*/,
+                             ilist_iterator<MCFragment> /*last*/) {}
+};
 
 /// Instances of this class represent a uniqued identifier for a section in the
 /// current translation unit.  The MCContext class uniques and creates these.
@@ -37,6 +55,14 @@ public:
     BundleLocked,
     BundleLockedAlignToEnd
   };
+
+  typedef iplist<MCFragment> FragmentListType;
+
+  typedef FragmentListType::const_iterator const_iterator;
+  typedef FragmentListType::iterator iterator;
+
+  typedef FragmentListType::const_reverse_iterator const_reverse_iterator;
+  typedef FragmentListType::reverse_iterator reverse_iterator;
 
 private:
   MCSection(const MCSection &) = delete;
@@ -59,14 +85,21 @@ private:
 
   /// \brief We've seen a bundle_lock directive but not its first instruction
   /// yet.
-  bool BundleGroupBeforeFirstInst = false;
+  unsigned BundleGroupBeforeFirstInst : 1;
 
   /// Whether this section has had instructions emitted into it.
   unsigned HasInstructions : 1;
 
+  unsigned IsRegistered : 1;
+
+  FragmentListType Fragments;
+
+  /// Mapping from subsection number to insertion point for subsection numbers
+  /// below that number.
+  SmallVector<std::pair<unsigned, MCFragment *>, 1> SubsectionFragmentMap;
+
 protected:
-  MCSection(SectionVariant V, SectionKind K, MCSymbol *Begin)
-      : Begin(Begin), HasInstructions(false), Variant(V), Kind(K) {}
+  MCSection(SectionVariant V, SectionKind K, MCSymbol *Begin);
   SectionVariant Variant;
   SectionKind Kind;
 
@@ -110,6 +143,38 @@ public:
 
   bool hasInstructions() const { return HasInstructions; }
   void setHasInstructions(bool Value) { HasInstructions = Value; }
+
+  bool isRegistered() const { return IsRegistered; }
+  void setIsRegistered(bool Value) { IsRegistered = Value; }
+
+  MCSection::FragmentListType &getFragmentList() { return Fragments; }
+  const MCSection::FragmentListType &getFragmentList() const {
+    return const_cast<MCSection *>(this)->getFragmentList();
+  }
+
+  MCSection::iterator begin();
+  MCSection::const_iterator begin() const {
+    return const_cast<MCSection *>(this)->begin();
+  }
+
+  MCSection::iterator end();
+  MCSection::const_iterator end() const {
+    return const_cast<MCSection *>(this)->end();
+  }
+
+  MCSection::reverse_iterator rbegin();
+  MCSection::const_reverse_iterator rbegin() const {
+    return const_cast<MCSection *>(this)->rbegin();
+  }
+
+  MCSection::reverse_iterator rend();
+  MCSection::const_reverse_iterator rend() const {
+    return const_cast<MCSection *>(this)->rend();
+  }
+
+  MCSection::iterator getSubsectionInsertionPoint(unsigned Subsection);
+
+  void dump();
 
   virtual void PrintSwitchToSection(const MCAsmInfo &MAI, raw_ostream &OS,
                                     const MCExpr *Subsection) const = 0;

@@ -97,6 +97,10 @@ bool Input::nextDocument() {
   return ++DocIterator != Strm->end();
 }
 
+const Node *Input::getCurrentNode() const {
+  return CurrentNode ? CurrentNode->_node : nullptr;
+}
+
 bool Input::mapTag(StringRef Tag, bool Default) {
   std::string foundTag = CurrentNode->_node->getVerbatimTag();
   if (foundTag.empty()) {
@@ -328,17 +332,12 @@ std::unique_ptr<Input::HNode> Input::createHNodes(Node *N) {
     StringRef KeyStr = SN->getValue(StringStorage);
     if (!StringStorage.empty()) {
       // Copy string to permanent storage
-      unsigned Len = StringStorage.size();
-      char *Buf = StringAllocator.Allocate<char>(Len);
-      memcpy(Buf, &StringStorage[0], Len);
-      KeyStr = StringRef(Buf, Len);
+      KeyStr = StringStorage.str().copy(StringAllocator);
     }
     return llvm::make_unique<ScalarHNode>(N, KeyStr);
   } else if (BlockScalarNode *BSN = dyn_cast<BlockScalarNode>(N)) {
-    StringRef Value = BSN->getValue();
-    char *Buf = StringAllocator.Allocate<char>(Value.size());
-    memcpy(Buf, Value.data(), Value.size());
-    return llvm::make_unique<ScalarHNode>(N, StringRef(Buf, Value.size()));
+    StringRef ValueCopy = BSN->getValue().copy(StringAllocator);
+    return llvm::make_unique<ScalarHNode>(N, ValueCopy);
   } else if (SequenceNode *SQ = dyn_cast<SequenceNode>(N)) {
     auto SQHNode = llvm::make_unique<SequenceHNode>(N);
     for (Node &SN : *SQ) {
@@ -361,10 +360,7 @@ std::unique_ptr<Input::HNode> Input::createHNodes(Node *N) {
       StringRef KeyStr = KeyScalar->getValue(StringStorage);
       if (!StringStorage.empty()) {
         // Copy string to permanent storage
-        unsigned Len = StringStorage.size();
-        char *Buf = StringAllocator.Allocate<char>(Len);
-        memcpy(Buf, &StringStorage[0], Len);
-        KeyStr = StringRef(Buf, Len);
+        KeyStr = StringStorage.str().copy(StringAllocator);
       }
       auto ValueHNode = this->createHNodes(KVN.getValue());
       if (EC)
@@ -400,9 +396,10 @@ bool Input::canElideEmptySequence() {
 //  Output
 //===----------------------------------------------------------------------===//
 
-Output::Output(raw_ostream &yout, void *context)
+Output::Output(raw_ostream &yout, void *context, int WrapColumn)
     : IO(context),
       Out(yout),
+      WrapColumn(WrapColumn),
       Column(0),
       ColumnAtFlowStart(0),
       ColumnAtMapFlowStart(0),
@@ -525,7 +522,7 @@ void Output::endFlowSequence() {
 bool Output::preflightFlowElement(unsigned, void *&) {
   if (NeedFlowSequenceComma)
     output(", ");
-  if (Column > 70) {
+  if (WrapColumn && Column > WrapColumn) {
     output("\n");
     for (int i = 0; i < ColumnAtFlowStart; ++i)
       output(" ");
@@ -716,7 +713,7 @@ void Output::paddedKey(StringRef key) {
 void Output::flowKey(StringRef Key) {
   if (StateStack.back() == inFlowMapOtherKey)
     output(", ");
-  if (Column > 70) {
+  if (WrapColumn && Column > WrapColumn) {
     output("\n");
     for (int I = 0; I < ColumnAtMapFlowStart; ++I)
       output(" ");

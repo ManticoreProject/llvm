@@ -62,6 +62,9 @@
 # CHECK-BE: xscvdpsp 7, 27                     # encoding: [0xf0,0xe0,0xdc,0x24]
 # CHECK-LE: xscvdpsp 7, 27                     # encoding: [0x24,0xdc,0xe0,0xf0]
             xscvdpsp 7, 27
+# CHECK-BE: xscvdpspn 7, 27                    # encoding: [0xf0,0xe0,0xdc,0x2c]
+# CHECK-LE: xscvdpspn 7, 27                    # encoding: [0x2c,0xdc,0xe0,0xf0]
+            xscvdpspn 7, 27
 # CHECK-BE: xscvdpsxds 7, 27                   # encoding: [0xf0,0xe0,0xdd,0x60]
 # CHECK-LE: xscvdpsxds 7, 27                   # encoding: [0x60,0xdd,0xe0,0xf0]
             xscvdpsxds 7, 27
@@ -77,9 +80,18 @@
 # CHECK-BE: xscvspdp 7, 27                     # encoding: [0xf0,0xe0,0xdd,0x24]
 # CHECK-LE: xscvspdp 7, 27                     # encoding: [0x24,0xdd,0xe0,0xf0]
             xscvspdp 7, 27
+# CHECK-BE: xscvspdpn 7, 27                    # encoding: [0xf0,0xe0,0xdd,0x2c]
+# CHECK-LE: xscvspdpn 7, 27                    # encoding: [0x2c,0xdd,0xe0,0xf0]
+            xscvspdpn 7, 27
+# CHECK-BE: xscvsxdsp 7, 27                    # encoding: [0xf0,0xe0,0xdc,0xe0]
+# CHECK-LE: xscvsxdsp 7, 27                    # encoding: [0xe0,0xdc,0xe0,0xf0]
+            xscvsxdsp 7, 27
 # CHECK-BE: xscvsxddp 7, 27                    # encoding: [0xf0,0xe0,0xdd,0xe0]
 # CHECK-LE: xscvsxddp 7, 27                    # encoding: [0xe0,0xdd,0xe0,0xf0]
             xscvsxddp 7, 27
+# CHECK-BE: xscvuxdsp 7, 27                    # encoding: [0xf0,0xe0,0xdc,0xa0]
+# CHECK-LE: xscvuxdsp 7, 27                    # encoding: [0xa0,0xdc,0xe0,0xf0]
+            xscvuxdsp 7, 27
 # CHECK-BE: xscvuxddp 7, 27                    # encoding: [0xf0,0xe0,0xdd,0xa0]
 # CHECK-LE: xscvuxddp 7, 27                    # encoding: [0xa0,0xdd,0xe0,0xf0]
             xscvuxddp 7, 27
@@ -95,6 +107,12 @@
 # CHECK-BE: xsmaddmdp 7, 63, 27                # encoding: [0xf0,0xff,0xd9,0x4c]
 # CHECK-LE: xsmaddmdp 7, 63, 27                # encoding: [0x4c,0xd9,0xff,0xf0]
             xsmaddmdp 7, 63, 27
+# CHECK-BE: xsmaddasp 7, 63, 27                # encoding: [0xf0,0xff,0xd8,0x0c]
+# CHECK-LE: xsmaddasp 7, 63, 27                # encoding: [0x0c,0xd8,0xff,0xf0]
+            xsmaddasp 7, 63, 27
+# CHECK-BE: xsmaddmsp 7, 63, 27                # encoding: [0xf0,0xff,0xd8,0x4c]
+# CHECK-LE: xsmaddmsp 7, 63, 27                # encoding: [0x4c,0xd8,0xff,0xf0]
+            xsmaddmsp 7, 63, 27
 # CHECK-BE: xsmaxdp 7, 63, 27                  # encoding: [0xf0,0xff,0xdd,0x04]
 # CHECK-LE: xsmaxdp 7, 63, 27                  # encoding: [0x04,0xdd,0xff,0xf0]
             xsmaxdp 7, 63, 27
@@ -107,6 +125,12 @@
 # CHECK-BE: xsmsubmdp 7, 63, 27                # encoding: [0xf0,0xff,0xd9,0xcc]
 # CHECK-LE: xsmsubmdp 7, 63, 27                # encoding: [0xcc,0xd9,0xff,0xf0]
             xsmsubmdp 7, 63, 27
+# CHECK-BE: xsmsubasp 7, 63, 27                # encoding: [0xf0,0xff,0xd8,0x8c]
+# CHECK-LE: xsmsubasp 7, 63, 27                # encoding: [0x8c,0xd8,0xff,0xf0]
+            xsmsubasp 7, 63, 27
+# CHECK-BE: xsmsubmsp 7, 63, 27                # encoding: [0xf0,0xff,0xd8,0xcc]
+# CHECK-LE: xsmsubmsp 7, 63, 27                # encoding: [0xcc,0xd8,0xff,0xf0]
+            xsmsubmsp 7, 63, 27
 # CHECK-BE: xsmulsp 7, 63, 27                  # encoding: [0xf0,0xff,0xd8,0x84]
 # CHECK-LE: xsmulsp 7, 63, 27                  # encoding: [0x84,0xd8,0xff,0xf0]
             xsmulsp 7, 63, 27
@@ -131,6 +155,18 @@
 # CHECK-BE: xsnmsubmdp 7, 63, 27               # encoding: [0xf0,0xff,0xdd,0xcc]
 # CHECK-LE: xsnmsubmdp 7, 63, 27               # encoding: [0xcc,0xdd,0xff,0xf0]
             xsnmsubmdp 7, 63, 27
+# CHECK-BE: xsnmaddasp 7, 63, 27               # encoding: [0xf0,0xff,0xdc,0x0c]
+# CHECK-LE: xsnmaddasp 7, 63, 27               # encoding: [0x0c,0xdc,0xff,0xf0]
+            xsnmaddasp 7, 63, 27
+# CHECK-BE: xsnmaddmsp 7, 63, 27               # encoding: [0xf0,0xff,0xdc,0x4c]
+# CHECK-LE: xsnmaddmsp 7, 63, 27               # encoding: [0x4c,0xdc,0xff,0xf0]
+            xsnmaddmsp 7, 63, 27
+# CHECK-BE: xsnmsubasp 7, 63, 27               # encoding: [0xf0,0xff,0xdc,0x8c]
+# CHECK-LE: xsnmsubasp 7, 63, 27               # encoding: [0x8c,0xdc,0xff,0xf0]
+            xsnmsubasp 7, 63, 27
+# CHECK-BE: xsnmsubmsp 7, 63, 27               # encoding: [0xf0,0xff,0xdc,0xcc]
+# CHECK-LE: xsnmsubmsp 7, 63, 27               # encoding: [0xcc,0xdc,0xff,0xf0]
+            xsnmsubmsp 7, 63, 27
 # CHECK-BE: xsrdpi 7, 27                       # encoding: [0xf0,0xe0,0xd9,0x24]
 # CHECK-LE: xsrdpi 7, 27                       # encoding: [0x24,0xd9,0xe0,0xf0]
             xsrdpi 7, 27

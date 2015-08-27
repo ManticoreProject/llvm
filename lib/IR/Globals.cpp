@@ -42,10 +42,14 @@ void GlobalValue::dematerialize() {
   getParent()->dematerialize(this);
 }
 
-/// Override destroyConstant to make sure it doesn't get called on
+/// Override destroyConstantImpl to make sure it doesn't get called on
 /// GlobalValue's because they shouldn't be treated like other constants.
-void GlobalValue::destroyConstant() {
-  llvm_unreachable("You can't GV->destroyConstant()!");
+void GlobalValue::destroyConstantImpl() {
+  llvm_unreachable("You can't GV->destroyConstantImpl()!");
+}
+
+Value *GlobalValue::handleOperandChangeImpl(Value *From, Value *To, Use *U) {
+  llvm_unreachable("Unsupported class for handleOperandChange()!");
 }
 
 /// copyAttributesFrom - copy all additional attributes (those not needed to
@@ -143,9 +147,9 @@ GlobalVariable::GlobalVariable(Type *Ty, bool constant, LinkageTypes Link,
                                Constant *InitVal, const Twine &Name,
                                ThreadLocalMode TLMode, unsigned AddressSpace,
                                bool isExternallyInitialized)
-    : GlobalObject(PointerType::get(Ty, AddressSpace), Value::GlobalVariableVal,
+    : GlobalObject(Ty, Value::GlobalVariableVal,
                    OperandTraits<GlobalVariable>::op_begin(this),
-                   InitVal != nullptr, Link, Name),
+                   InitVal != nullptr, Link, Name, AddressSpace),
       isConstantGlobal(constant),
       isExternallyInitializedConstant(isExternallyInitialized) {
   setThreadLocalMode(TLMode);
@@ -161,9 +165,9 @@ GlobalVariable::GlobalVariable(Module &M, Type *Ty, bool constant,
                                const Twine &Name, GlobalVariable *Before,
                                ThreadLocalMode TLMode, unsigned AddressSpace,
                                bool isExternallyInitialized)
-    : GlobalObject(PointerType::get(Ty, AddressSpace), Value::GlobalVariableVal,
+    : GlobalObject(Ty, Value::GlobalVariableVal,
                    OperandTraits<GlobalVariable>::op_begin(this),
-                   InitVal != nullptr, Link, Name),
+                   InitVal != nullptr, Link, Name, AddressSpace),
       isConstantGlobal(constant),
       isExternallyInitializedConstant(isExternallyInitialized) {
   setThreadLocalMode(TLMode);
@@ -191,37 +195,23 @@ void GlobalVariable::eraseFromParent() {
   getParent()->getGlobalList().erase(this);
 }
 
-void GlobalVariable::replaceUsesOfWithOnConstant(Value *From, Value *To,
-                                                 Use *U) {
-  // If you call this, then you better know this GVar has a constant
-  // initializer worth replacing. Enforce that here.
-  assert(getNumOperands() == 1 &&
-         "Attempt to replace uses of Constants on a GVar with no initializer");
-
-  // And, since you know it has an initializer, the From value better be
-  // the initializer :)
-  assert(getOperand(0) == From &&
-         "Attempt to replace wrong constant initializer in GVar");
-
-  // And, you better have a constant for the replacement value
-  assert(isa<Constant>(To) &&
-         "Attempt to replace GVar initializer with non-constant");
-
-  // Okay, preconditions out of the way, replace the constant initializer.
-  this->setOperand(0, cast<Constant>(To));
-}
-
 void GlobalVariable::setInitializer(Constant *InitVal) {
   if (!InitVal) {
     if (hasInitializer()) {
+      // Note, the num operands is used to compute the offset of the operand, so
+      // the order here matters.  Clearing the operand then clearing the num
+      // operands ensures we have the correct offset to the operand.
       Op<0>().set(nullptr);
-      NumOperands = 0;
+      setGlobalVariableNumOperands(0);
     }
   } else {
     assert(InitVal->getType() == getType()->getElementType() &&
            "Initializer type must match GlobalVariable type");
+    // Note, the num operands is used to compute the offset of the operand, so
+    // the order here matters.  We need to set num operands to 1 first so that
+    // we get the correct offset to the first operand when we set it.
     if (!hasInitializer())
-      NumOperands = 1;
+      setGlobalVariableNumOperands(1);
     Op<0>().set(InitVal);
   }
 }

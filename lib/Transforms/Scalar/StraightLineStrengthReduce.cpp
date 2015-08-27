@@ -131,7 +131,7 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<DominatorTreeWrapperPass>();
-    AU.addRequired<ScalarEvolution>();
+    AU.addRequired<ScalarEvolutionWrapperPass>();
     AU.addRequired<TargetTransformInfoWrapperPass>();
     // We do not modify the shape of the CFG.
     AU.setPreservesCFG();
@@ -212,7 +212,7 @@ char StraightLineStrengthReduce::ID = 0;
 INITIALIZE_PASS_BEGIN(StraightLineStrengthReduce, "slsr",
                       "Straight line strength reduction", false, false)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(ScalarEvolution)
+INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
 INITIALIZE_PASS_END(StraightLineStrengthReduce, "slsr",
                     "Straight line strength reduction", false, false)
@@ -224,14 +224,17 @@ FunctionPass *llvm::createStraightLineStrengthReducePass() {
 bool StraightLineStrengthReduce::isBasisFor(const Candidate &Basis,
                                             const Candidate &C) {
   return (Basis.Ins != C.Ins && // skip the same instruction
+          // They must have the same type too. Basis.Base == C.Base doesn't
+          // guarantee their types are the same (PR23975).
+          Basis.Ins->getType() == C.Ins->getType() &&
           // Basis must dominate C in order to rewrite C with respect to Basis.
           DT->dominates(Basis.Ins->getParent(), C.Ins->getParent()) &&
           // They share the same base, stride, and candidate kind.
-          Basis.Base == C.Base &&
-          Basis.Stride == C.Stride &&
+          Basis.Base == C.Base && Basis.Stride == C.Stride &&
           Basis.CandidateKind == C.CandidateKind);
 }
 
+// TODO: use TTI->getGEPCost.
 static bool isGEPFoldable(GetElementPtrInst *GEP,
                           const TargetTransformInfo *TTI,
                           const DataLayout *DL) {
@@ -265,8 +268,10 @@ static bool isGEPFoldable(GetElementPtrInst *GEP,
       BaseOffset += DL->getStructLayout(STy)->getElementOffset(Field);
     }
   }
+
+  unsigned AddrSpace = GEP->getPointerAddressSpace();
   return TTI->isLegalAddressingMode(GEP->getType()->getElementType(), BaseGV,
-                                    BaseOffset, HasBaseReg, Scale);
+                                    BaseOffset, HasBaseReg, Scale, AddrSpace);
 }
 
 // Returns whether (Base + Index * Stride) can be folded to an addressing mode.
@@ -630,6 +635,15 @@ void StraightLineStrengthReduce::rewriteCandidateWithBasis(
       // trivially dead.
       RecursivelyDeleteTriviallyDeadInstructions(Bump);
     } else {
+      // It's tempting to preserve nsw on Bump and/or Reduced. However, it's
+      // usually unsound, e.g.,
+      //
+      // X = (-2 +nsw 1) *nsw INT_MAX
+      // Y = (-2 +nsw 3) *nsw INT_MAX
+      //   =>
+      // Y = X + 2 * INT_MAX
+      //
+      // Neither + and * in the resultant expression are nsw.
       Reduced = Builder.CreateAdd(Basis.Ins, Bump);
     }
     break;
@@ -676,7 +690,7 @@ bool StraightLineStrengthReduce::runOnFunction(Function &F) {
 
   TTI = &getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
   DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  SE = &getAnalysis<ScalarEvolution>();
+  SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   // Traverse the dominator tree in the depth-first order. This order makes sure
   // all bases of a candidate are in Candidates when we process it.
   for (auto node = GraphTraits<DominatorTree *>::nodes_begin(DT);

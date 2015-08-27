@@ -174,19 +174,7 @@ int main(int argc, char **argv) {
   if (UseDiagnosticHandler)
     CodeGen.setDiagnosticHandler(handleDiagnostics, nullptr);
 
-  switch (RelocModel) {
-  case Reloc::Static:
-    CodeGen.setCodePICModel(LTO_CODEGEN_PIC_MODEL_STATIC);
-    break;
-  case Reloc::PIC_:
-    CodeGen.setCodePICModel(LTO_CODEGEN_PIC_MODEL_DYNAMIC);
-    break;
-  case Reloc::DynamicNoPIC:
-    CodeGen.setCodePICModel(LTO_CODEGEN_PIC_MODEL_DYNAMIC_NO_PIC);
-    break;
-  default:
-    CodeGen.setCodePICModel(LTO_CODEGEN_PIC_MODEL_DEFAULT);
-  }
+  CodeGen.setCodePICModel(RelocModel);
 
   CodeGen.setDebugInfo(LTO_DEBUG_MODEL_DWARF);
   CodeGen.setTargetOptions(Options);
@@ -207,26 +195,24 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    LTOModule *LTOMod = Module.get();
+    unsigned NumSyms = Module->getSymbolCount();
+    for (unsigned I = 0; I < NumSyms; ++I) {
+      StringRef Name = Module->getSymbolName(I);
+      if (!DSOSymbolsSet.count(Name))
+        continue;
+      lto_symbol_attributes Attrs = Module->getSymbolAttributes(I);
+      unsigned Scope = Attrs & LTO_SYMBOL_SCOPE_MASK;
+      if (Scope != LTO_SYMBOL_SCOPE_DEFAULT_CAN_BE_HIDDEN)
+        KeptDSOSyms.push_back(Name);
+    }
 
     // We use the first input module as the destination module when
     // SetMergedModule is true.
     if (SetMergedModule && i == BaseArg) {
       // Transfer ownership to the code generator.
-      CodeGen.setModule(Module.release());
+      CodeGen.setModule(std::move(Module));
     } else if (!CodeGen.addModule(Module.get()))
       return 1;
-
-    unsigned NumSyms = LTOMod->getSymbolCount();
-    for (unsigned I = 0; I < NumSyms; ++I) {
-      StringRef Name = LTOMod->getSymbolName(I);
-      if (!DSOSymbolsSet.count(Name))
-        continue;
-      lto_symbol_attributes Attrs = LTOMod->getSymbolAttributes(I);
-      unsigned Scope = Attrs & LTO_SYMBOL_SCOPE_MASK;
-      if (Scope != LTO_SYMBOL_SCOPE_DEFAULT_CAN_BE_HIDDEN)
-        KeptDSOSyms.push_back(Name);
-    }
   }
 
   // Add all the exported symbols to the table of symbols to preserve.
@@ -253,11 +239,9 @@ int main(int argc, char **argv) {
     CodeGen.setAttr(attrs.c_str());
 
   if (!OutputFilename.empty()) {
-    size_t len = 0;
     std::string ErrorInfo;
-    const void *Code =
-        CodeGen.compile(&len, DisableInline, DisableGVNLoadPRE,
-                        DisableLTOVectorization, ErrorInfo);
+    std::unique_ptr<MemoryBuffer> Code = CodeGen.compile(
+        DisableInline, DisableGVNLoadPRE, DisableLTOVectorization, ErrorInfo);
     if (!Code) {
       errs() << argv[0]
              << ": error compiling the code: " << ErrorInfo << "\n";
@@ -272,7 +256,7 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    FileStream.write(reinterpret_cast<const char *>(Code), len);
+    FileStream.write(Code->getBufferStart(), Code->getBufferSize());
   } else {
     std::string ErrorInfo;
     const char *OutputName = nullptr;
