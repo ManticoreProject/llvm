@@ -68,12 +68,17 @@ namespace CallingConv {
     // PreserveAll - Calling convention for runtime calls that preserves
     // (almost) all registers.
     PreserveAll = 15,
-    
-    /// PML - Calling convention for Parallel ML
-    PML = 16,
 
     // Swift - Calling convention for Swift.
     Swift = 16,
+
+    /// JWA - "Jump With Arguments," a calling convention which requires the
+    /// use of registers for parameter passing. It is designed for language
+    /// implementations which do not use a stack, however, it will not warn
+    /// if there are not enough registers for a given function. The lack of
+    /// warning is needed in order to properly utilize musttail calls as 
+    /// jumps because they are picky about parameters.
+    JWA = 17,
 
     // Target - This is the start of the target-specific calling conventions,
     // e.g. fastcall and thiscall on X86.

@@ -2344,7 +2344,7 @@ CreateCopyOfByValArgument(SDValue Src, SDValue Dst, SDValue Chain,
 /// supports tail call optimization.
 static bool IsTailCallConvention(CallingConv::ID CC) {
   return (CC == CallingConv::Fast || CC == CallingConv::GHC ||
-          CC == CallingConv::HiPE || CC == CallingConv::PML);
+          CC == CallingConv::HiPE || CC == CallingConv::JWA);
 }
 
 /// \brief Return true if the calling convention is a C calling convention.
@@ -3859,7 +3859,7 @@ bool X86::isCalleePop(CallingConv::ID CallingConv,
   case CallingConv::Fast:
   case CallingConv::GHC:
   case CallingConv::HiPE:
-  case CallingConv::PML:
+  case CallingConv::JWA:
     if (IsVarArg)
       return false;
     return TailCallOpt;

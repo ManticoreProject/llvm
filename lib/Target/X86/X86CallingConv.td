@@ -403,14 +403,48 @@ def CC_X86_64_GHC : CallingConv<[
             CCAssignToReg<[XMM1, XMM2, XMM3, XMM4, XMM5, XMM6]>>>
 ]>;
 
-def CC_X86_64_PML : CallingConv<[
+def CC_X86_64_JWA : CallingConv<[
+
   // Promote i8/i16/i32 arguments to i64.
   CCIfType<[i8, i16, i32], CCPromoteToType<i64>>,
 
-  // Pass dedicated registers:
-  // argument, closure, return cont, ex-handler cont, alloc ptr, vproc ptr
+  // Could probably select some optimal order, this is just going down
+  // the list went down the list, skipping RBP and RSP in case one
+  // wants to call C functions.
+
   CCIfType<[i64],
-  CCAssignToReg<[RAX, RDI, R8, R9, RSI, R11]>>
+  CCAssignToReg<[RAX, RBX, RCX, RDX, RSI, RDI, 
+                 R8, R9, R10, R11, R12, R13, R14, R15]>>,
+
+
+  // TODO(kavon): check if something breaks if the target
+  // does not support SSE registers?
+
+  // floating point and vector types of 128 bits or less use XMM registers.
+  CCIfType<[f32, f64, v16i8, v8i16, v4i32, v2i64, v4f32, v2f64],
+           CCAssignToReg<[XMM0, XMM1, XMM2, XMM3, 
+                          XMM4, XMM5, XMM6, XMM7,
+                          XMM8, XMM9, XMM10, XMM11,
+                          XMM12, XMM13, XMM14, XMM15]>>,
+
+  // 256-bit vectors use YMM registers.
+  CCIfType<[v32i8, v16i16, v8i32, v4i64, v8f32, v4f64],
+           CCAssignToReg<[YMM0, YMM1, YMM2, YMM3, 
+                          YMM4, YMM5, YMM6, YMM7,
+                          YMM8, YMM9, YMM10, YMM11,
+                          YMM12, YMM13, YMM14, YMM15]>>,
+
+  // 512-bit vectors use ZMM registers.
+  CCIfType<[v64i8, v32i16, v16i32, v8i64, v16f32, v8f64],
+           CCAssignToReg<[ZMM0, ZMM1, ZMM2, ZMM3, 
+                          ZMM4, ZMM5, ZMM6, ZMM7,
+                          ZMM8, ZMM9, ZMM10, ZMM11,
+                          ZMM12, ZMM13, ZMM14, ZMM15,
+                          ZMM16, ZMM17, ZMM18, ZMM19,
+                          ZMM20, ZMM21, ZMM22, ZMM23,
+                          ZMM24, ZMM25, ZMM26, ZMM27,
+                          ZMM28, ZMM29, ZMM30, ZMM31]>>
+
 ]>;
 
 def CC_X86_64_HiPE : CallingConv<[
@@ -675,16 +709,6 @@ def CC_X86_32_GHC : CallingConv<[
   CCIfType<[i32], CCAssignToReg<[EBX, EBP, EDI, ESI]>>
 ]>;
 
-def CC_X86_32_PML : CallingConv<[
-  // Promote i8/i16 arguments to i32.
-  CCIfType<[i8, i16], CCPromoteToType<i32>>,
-
-  // Pass dedicated registers:
-  // argument, closure, return cont, ex-handler cont, alloc ptr, vproc ptr
-  CCIfType<[i32],
-  CCAssignToReg<[EAX, EDI, EBX, ECX, ESI, EDX]>>
-]>;
-
 def CC_X86_32_HiPE : CallingConv<[
   // Promote i8/i16 arguments to i32.
   CCIfType<[i8, i16], CCPromoteToType<i32>>,
@@ -740,7 +764,6 @@ def CC_X86_32 : CallingConv<[
   CCIfCC<"CallingConv::Fast", CCDelegateTo<CC_X86_32_FastCC>>,
   CCIfCC<"CallingConv::GHC", CCDelegateTo<CC_X86_32_GHC>>,
   CCIfCC<"CallingConv::HiPE", CCDelegateTo<CC_X86_32_HiPE>>,
-  CCIfCC<"CallingConv::PML", CCDelegateTo<CC_X86_32_PML>>,
 
   // Otherwise, drop to normal X86-32 CC
   CCDelegateTo<CC_X86_32_C>
@@ -751,7 +774,7 @@ def CC_X86_64 : CallingConv<[
   CCIfCC<"CallingConv::GHC", CCDelegateTo<CC_X86_64_GHC>>,
   CCIfCC<"CallingConv::HiPE", CCDelegateTo<CC_X86_64_HiPE>>,
   CCIfCC<"CallingConv::WebKit_JS", CCDelegateTo<CC_X86_64_WebKit_JS>>,
-  CCIfCC<"CallingConv::PML", CCDelegateTo<CC_X86_64_PML>>,
+  CCIfCC<"CallingConv::JWA", CCDelegateTo<CC_X86_64_JWA>>,
   CCIfCC<"CallingConv::AnyReg", CCDelegateTo<CC_X86_64_AnyReg>>,
   CCIfCC<"CallingConv::X86_64_Win64", CCDelegateTo<CC_X86_Win64_C>>,
   CCIfCC<"CallingConv::X86_64_SysV", CCDelegateTo<CC_X86_64_C>>,
