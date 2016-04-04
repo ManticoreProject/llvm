@@ -110,6 +110,33 @@ LLVMContext::LLVMContext() : pImpl(new LLVMContextImpl(*this)) {
   assert(MakeImplicitID == MD_make_implicit &&
          "make.implicit kind id drifted");
   (void)MakeImplicitID;
+
+  // Create the 'unpredictable' metadata kind.
+  unsigned UnpredictableID = getMDKindID("unpredictable");
+  assert(UnpredictableID == MD_unpredictable &&
+         "unpredictable kind id drifted");
+  (void)UnpredictableID;
+
+  // Create the 'invariant.group' metadata kind.
+  unsigned InvariantGroupId = getMDKindID("invariant.group");
+  assert(InvariantGroupId == MD_invariant_group &&
+         "invariant.group kind id drifted");
+  (void)InvariantGroupId;
+
+  // Create the 'align' metadata kind.
+  unsigned AlignID = getMDKindID("align");
+  assert(AlignID == MD_align && "align kind id drifted");
+  (void)AlignID;
+
+  auto *DeoptEntry = pImpl->getOrInsertBundleTag("deopt");
+  assert(DeoptEntry->second == LLVMContext::OB_deopt &&
+         "deopt operand bundle id drifted!");
+  (void)DeoptEntry;
+
+  auto *FuncletEntry = pImpl->getOrInsertBundleTag("funclet");
+  assert(FuncletEntry->second == LLVMContext::OB_funclet &&
+         "funclet operand bundle id drifted!");
+  (void)FuncletEntry;
 }
 LLVMContext::~LLVMContext() { delete pImpl; }
 
@@ -268,4 +295,28 @@ void LLVMContext::getMDKindNames(SmallVectorImpl<StringRef> &Names) const {
   for (StringMap<unsigned>::const_iterator I = pImpl->CustomMDKindNames.begin(),
        E = pImpl->CustomMDKindNames.end(); I != E; ++I)
     Names[I->second] = I->first();
+}
+
+void LLVMContext::getOperandBundleTags(SmallVectorImpl<StringRef> &Tags) const {
+  pImpl->getOperandBundleTags(Tags);
+}
+
+uint32_t LLVMContext::getOperandBundleTagID(StringRef Tag) const {
+  return pImpl->getOperandBundleTagID(Tag);
+}
+
+void LLVMContext::setGC(const Function &Fn, std::string GCName) {
+  auto It = pImpl->GCNames.find(&Fn);
+
+  if (It == pImpl->GCNames.end()) {
+    pImpl->GCNames.insert(std::make_pair(&Fn, std::move(GCName)));
+    return;
+  }
+  It->second = std::move(GCName);
+}
+const std::string &LLVMContext::getGC(const Function &Fn) {
+  return pImpl->GCNames[&Fn];
+}
+void LLVMContext::deleteGC(const Function &Fn) {
+  pImpl->GCNames.erase(&Fn);
 }

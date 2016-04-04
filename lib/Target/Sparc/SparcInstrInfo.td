@@ -486,6 +486,22 @@ let DecoderMethod = "DecodeStoreQFP" in
   defm STQF  : StoreA<"stq", 0b100110, 0b110110, store, QFPRegs, f128>,
                Requires<[HasV9, HasHardQuad]>;
 
+let DecoderMethod = "DecodeStoreFP" in
+  let Defs = [FSR] in {
+    let rd = 0 in {
+      def STFSRrr : F3_1<3, 0b100101, (outs MEMrr:$addr), (ins),
+                     "st %fsr, [$addr]", []>;
+      def STFSRri : F3_2<3, 0b100101, (outs MEMri:$addr), (ins),
+                     "st %fsr, [$addr]", []>;
+    }
+    let rd = 1 in {
+      def STXFSRrr : F3_1<3, 0b100101, (outs MEMrr:$addr), (ins),
+                     "stx %fsr, [$addr]", []>, Requires<[HasV9]>;
+      def STXFSRri : F3_2<3, 0b100101, (outs MEMri:$addr), (ins),
+                     "stx %fsr, [$addr]", []>, Requires<[HasV9]>;
+    }
+  }
+
 // Section B.8 - SWAP Register with Memory Instruction
 // (Atomic swap)
 let Constraints = "$val = $dst", DecoderMethod = "DecodeSWAP" in {
@@ -610,6 +626,10 @@ let Defs = [Y] in {
 let Defs = [Y, ICC] in {
   defm UMULCC : F3_12np<"umulcc", 0b011010>;
   defm SMULCC : F3_12np<"smulcc", 0b011011>;
+}
+
+let Defs = [Y, ICC], Uses = [Y, ICC] in {
+  defm MULSCC : F3_12np<"mulscc", 0b100100>;
 }
 
 // Section B.19 - Divide Instructions, p. 115
@@ -1307,6 +1327,25 @@ let hasSideEffects = 1 in {
 }
 }
 
+
+// Section A.43 - Read Privileged Register Instructions
+let Predicates = [HasV9] in {
+let rs2 = 0 in
+  def RDPR : F3_1<2, 0b101010,
+                 (outs IntRegs:$rd), (ins PRRegs:$rs1),
+                 "rdpr $rs1, $rd", []>;
+}
+
+// Section A.62 - Write Privileged Register Instructions
+let Predicates = [HasV9] in {
+  def WRPRrr : F3_1<2, 0b110010,
+                   (outs PRRegs:$rd), (ins IntRegs:$rs1, IntRegs:$rs2),
+                   "wrpr $rs1, $rs2, $rd", []>;
+  def WRPRri : F3_2<2, 0b110010,
+                   (outs PRRegs:$rd), (ins IntRegs:$rs1, simm13Op:$simm13),
+                   "wrpr $rs1, $simm13, $rd", []>;
+}
+
 //===----------------------------------------------------------------------===//
 // Non-Instruction Patterns
 //===----------------------------------------------------------------------===//
@@ -1381,9 +1420,9 @@ def : Pat<(atomic_store ADDRrr:$dst, i32:$val), (STrr ADDRrr:$dst, $val)>;
 def : Pat<(atomic_store ADDRri:$dst, i32:$val), (STri ADDRri:$dst, $val)>;
 
 // extract_vector
-def : Pat<(vector_extract (v2i32 IntPair:$Rn), 0),
+def : Pat<(extractelt (v2i32 IntPair:$Rn), 0),
           (i32 (EXTRACT_SUBREG IntPair:$Rn, sub_even))>;
-def : Pat<(vector_extract (v2i32 IntPair:$Rn), 1),
+def : Pat<(extractelt (v2i32 IntPair:$Rn), 1),
           (i32 (EXTRACT_SUBREG IntPair:$Rn, sub_odd))>;
 
 // build_vector

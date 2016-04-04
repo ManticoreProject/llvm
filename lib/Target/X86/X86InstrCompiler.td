@@ -152,6 +152,29 @@ def EH_RETURN64   : I<0xC3, RawFrm, (outs), (ins GR64:$addr),
 
 }
 
+let isTerminator = 1, hasSideEffects = 1, isBarrier = 1, hasCtrlDep = 1,
+    isCodeGenOnly = 1, isReturn = 1 in {
+  def CLEANUPRET : I<0, Pseudo, (outs), (ins), "# CLEANUPRET", [(cleanupret)]>;
+
+  // CATCHRET needs a custom inserter for SEH.
+  let usesCustomInserter = 1 in
+    def CATCHRET : I<0, Pseudo, (outs), (ins brtarget32:$dst, brtarget32:$from),
+                     "# CATCHRET",
+                     [(catchret bb:$dst, bb:$from)]>;
+}
+
+let hasSideEffects = 1, hasCtrlDep = 1, isCodeGenOnly = 1,
+    usesCustomInserter = 1 in
+def CATCHPAD : I<0, Pseudo, (outs), (ins), "# CATCHPAD", [(catchpad)]>;
+
+// This instruction is responsible for re-establishing stack pointers after an
+// exception has been caught and we are rejoining normal control flow in the
+// parent function or funclet. It generally sets ESP and EBP, and optionally
+// ESI. It is only needed for 32-bit WinEH, as the runtime restores CSRs for us
+// elsewhere.
+let hasSideEffects = 1, hasCtrlDep = 1, isCodeGenOnly = 1 in
+def EH_RESTORE : I<0, Pseudo, (outs), (ins), "# EH_RESTORE", []>;
+
 let hasSideEffects = 1, isBarrier = 1, isCodeGenOnly = 1,
     usesCustomInserter = 1 in {
   def EH_SjLj_SetJmp32  : I<0, Pseudo, (outs GR32:$dst), (ins i32mem:$buf),
@@ -239,18 +262,33 @@ def : Pat<(i64 0), (SUBREG_TO_REG (i64 0), (MOV32r0), sub_32bit)> {
   let AddedComplexity = 20;
 }
 
+let Predicates = [OptForSize, NotSlowIncDec, Not64BitMode],
+    AddedComplexity = 1 in {
+  // Pseudo instructions for materializing 1 and -1 using XOR+INC/DEC,
+  // which only require 3 bytes compared to MOV32ri which requires 5.
+  let Defs = [EFLAGS], isReMaterializable = 1, isPseudo = 1 in {
+    def MOV32r1 : I<0, Pseudo, (outs GR32:$dst), (ins), "",
+                        [(set GR32:$dst, 1)]>;
+    def MOV32r_1 : I<0, Pseudo, (outs GR32:$dst), (ins), "",
+                        [(set GR32:$dst, -1)]>;
+  }
+
+  // MOV16ri is 4 bytes, so the instructions above are smaller.
+  def : Pat<(i16 1), (EXTRACT_SUBREG (MOV32r1), sub_16bit)>;
+  def : Pat<(i16 -1), (EXTRACT_SUBREG (MOV32r_1), sub_16bit)>;
+}
+
 // Materialize i64 constant where top 32-bits are zero. This could theoretically
 // use MOV32ri with a SUBREG_TO_REG to represent the zero-extension, however
 // that would make it more difficult to rematerialize.
-let AddedComplexity = 1, isReMaterializable = 1, isAsCheapAsAMove = 1,
-    isCodeGenOnly = 1, hasSideEffects = 0 in
-def MOV32ri64 : Ii32<0xb8, AddRegFrm, (outs GR32:$dst), (ins i64i32imm:$src),
-                     "", [], IIC_ALU_NONMEM>, Sched<[WriteALU]>;
+let isReMaterializable = 1, isAsCheapAsAMove = 1,
+    isPseudo = 1, hasSideEffects = 0 in
+def MOV32ri64 : I<0, Pseudo, (outs GR32:$dst), (ins i64i32imm:$src), "", []>;
 
 // This 64-bit pseudo-move can be used for both a 64-bit constant that is
-// actually the zero-extension of a 32-bit constant, and for labels in the
+// actually the zero-extension of a 32-bit constant and for labels in the
 // x86-64 small code model.
-def mov64imm32 : ComplexPattern<i64, 1, "SelectMOV64Imm32", [imm, X86Wrapper]>;
+def mov64imm32 : ComplexPattern<i64, 1, "selectMOV64Imm32", [imm, X86Wrapper]>;
 
 let AddedComplexity = 1 in
 def : Pat<(i64 mov64imm32:$src),
@@ -398,7 +436,7 @@ let Defs = [EAX, ECX, EDX, FP0, FP1, FP2, FP3, FP4, FP5, FP6, FP7,
             MM0, MM1, MM2, MM3, MM4, MM5, MM6, MM7,
             XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7,
             XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14, XMM15, EFLAGS],
-    Uses = [ESP] in {
+    usesCustomInserter = 1, Uses = [ESP] in {
 def TLS_addr32 : I<0, Pseudo, (outs), (ins i32mem:$sym),
                   "# TLS_addr32",
                   [(X86tlsaddr tls32addr:$sym)]>,
@@ -418,7 +456,7 @@ let Defs = [RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11,
             MM0, MM1, MM2, MM3, MM4, MM5, MM6, MM7,
             XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7,
             XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14, XMM15, EFLAGS],
-    Uses = [RSP] in {
+    usesCustomInserter = 1, Uses = [RSP] in {
 def TLS_addr64 : I<0, Pseudo, (outs), (ins i64mem:$sym),
                    "# TLS_addr64",
                   [(X86tlsaddr tls64addr:$sym)]>,
@@ -489,6 +527,7 @@ let usesCustomInserter = 1, Uses = [EFLAGS] in {
 
   defm _FR32   : CMOVrr_PSEUDO<FR32, f32>;
   defm _FR64   : CMOVrr_PSEUDO<FR64, f64>;
+  defm _FR128  : CMOVrr_PSEUDO<FR128, f128>;
   defm _V4F32  : CMOVrr_PSEUDO<VR128, v4f32>;
   defm _V2F64  : CMOVrr_PSEUDO<VR128, v2f64>;
   defm _V2I64  : CMOVrr_PSEUDO<VR128, v2i64>;
@@ -515,8 +554,8 @@ let usesCustomInserter = 1, Uses = [EFLAGS] in {
 // TODO: Get this to fold the constant into the instruction.
 let isCodeGenOnly = 1, Defs = [EFLAGS] in
 def OR32mrLocked  : I<0x09, MRMDestMem, (outs), (ins i32mem:$dst, GR32:$zero),
-                      "or{l}\t{$zero, $dst|$dst, $zero}",
-                      [], IIC_ALU_MEM>, Requires<[Not64BitMode]>, LOCK,
+                      "or{l}\t{$zero, $dst|$dst, $zero}", [],
+                      IIC_ALU_MEM>, Requires<[Not64BitMode]>, OpSize32, LOCK,
                     Sched<[WriteALULd, WriteRMW]>;
 
 let hasSideEffects = 1 in
@@ -767,12 +806,14 @@ multiclass RELEASE_BINOP_MI<SDNode op> {
         [(atomic_store_64 addr:$dst, (op
             (atomic_load_64 addr:$dst), GR64:$src))]>;
 }
-defm RELEASE_ADD : RELEASE_BINOP_MI<add>;
-defm RELEASE_AND : RELEASE_BINOP_MI<and>;
-defm RELEASE_OR  : RELEASE_BINOP_MI<or>;
-defm RELEASE_XOR : RELEASE_BINOP_MI<xor>;
-// Note: we don't deal with sub, because substractions of constants are
-// optimized into additions before this code can run
+let Defs = [EFLAGS] in {
+  defm RELEASE_ADD : RELEASE_BINOP_MI<add>;
+  defm RELEASE_AND : RELEASE_BINOP_MI<and>;
+  defm RELEASE_OR  : RELEASE_BINOP_MI<or>;
+  defm RELEASE_XOR : RELEASE_BINOP_MI<xor>;
+  // Note: we don't deal with sub, because substractions of constants are
+  //       optimized into additions before this code can run.
+}
 
 // Same as above, but for floating-point.
 // FIXME: imm version.
@@ -812,24 +853,29 @@ multiclass RELEASE_UNOP<dag dag8, dag dag16, dag dag32, dag dag64> {
         [(atomic_store_64 addr:$dst, dag64)]>;
 }
 
-defm RELEASE_INC : RELEASE_UNOP<
-    (add (atomic_load_8  addr:$dst), (i8 1)),
-    (add (atomic_load_16 addr:$dst), (i16 1)),
-    (add (atomic_load_32 addr:$dst), (i32 1)),
-    (add (atomic_load_64 addr:$dst), (i64 1))>, Requires<[NotSlowIncDec]>;
-defm RELEASE_DEC : RELEASE_UNOP<
-    (add (atomic_load_8  addr:$dst), (i8 -1)),
-    (add (atomic_load_16 addr:$dst), (i16 -1)),
-    (add (atomic_load_32 addr:$dst), (i32 -1)),
-    (add (atomic_load_64 addr:$dst), (i64 -1))>, Requires<[NotSlowIncDec]>;
+let Defs = [EFLAGS] in {
+  defm RELEASE_INC : RELEASE_UNOP<
+      (add (atomic_load_8  addr:$dst), (i8 1)),
+      (add (atomic_load_16 addr:$dst), (i16 1)),
+      (add (atomic_load_32 addr:$dst), (i32 1)),
+      (add (atomic_load_64 addr:$dst), (i64 1))>, Requires<[NotSlowIncDec]>;
+  defm RELEASE_DEC : RELEASE_UNOP<
+      (add (atomic_load_8  addr:$dst), (i8 -1)),
+      (add (atomic_load_16 addr:$dst), (i16 -1)),
+      (add (atomic_load_32 addr:$dst), (i32 -1)),
+      (add (atomic_load_64 addr:$dst), (i64 -1))>, Requires<[NotSlowIncDec]>;
+}
 /*
 TODO: These don't work because the type inference of TableGen fails.
 TODO: find a way to fix it.
-defm RELEASE_NEG : RELEASE_UNOP<
-    (ineg (atomic_load_8  addr:$dst)),
-    (ineg (atomic_load_16 addr:$dst)),
-    (ineg (atomic_load_32 addr:$dst)),
-    (ineg (atomic_load_64 addr:$dst))>;
+let Defs = [EFLAGS] in {
+  defm RELEASE_NEG : RELEASE_UNOP<
+      (ineg (atomic_load_8  addr:$dst)),
+      (ineg (atomic_load_16 addr:$dst)),
+      (ineg (atomic_load_32 addr:$dst)),
+      (ineg (atomic_load_64 addr:$dst))>;
+}
+// NOT doesn't set flags.
 defm RELEASE_NOT : RELEASE_UNOP<
     (not (atomic_load_8  addr:$dst)),
     (not (atomic_load_16 addr:$dst)),
@@ -1315,7 +1361,6 @@ def : Pat<(and GR64:$src, 0x00000000FFFFFFFF),
                          (MOV32rr (EXTRACT_SUBREG GR64:$src, sub_32bit)),
                          sub_32bit)>;
 // r & (2^16-1) ==> movz
-let AddedComplexity = 1 in // Give priority over i64immZExt32.
 def : Pat<(and GR64:$src, 0xffff),
           (SUBREG_TO_REG (i64 0),
                       (MOVZX32rr16 (i16 (EXTRACT_SUBREG GR64:$src, sub_16bit))),

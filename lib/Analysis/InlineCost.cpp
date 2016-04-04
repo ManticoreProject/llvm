@@ -115,11 +115,11 @@ class CallAnalyzer : public InstVisitor<CallAnalyzer, bool> {
   /// inlining has the given attribute set either at the call site or the
   /// function declaration.  Primarily used to inspect call site specific
   /// attributes since these can be more precise than the ones on the callee
-  /// itself. 
+  /// itself.
   bool paramHasAttr(Argument *A, Attribute::AttrKind Attr);
   
   /// Return true if the given value is known non null within the callee if
-  /// inlined through this particular callsite. 
+  /// inlined through this particular callsite.
   bool isKnownNonNullInCallee(Value *V);
 
   // Custom analysis routines.
@@ -834,8 +834,8 @@ bool CallAnalyzer::visitCallSite(CallSite CS) {
   CallAnalyzer CA(TTI, ACT, *F, InlineConstants::IndirectCallThreshold, CS);
   if (CA.analyzeCall(CS)) {
     // We were able to inline the indirect call! Subtract the cost from the
-    // bonus we want to apply, but don't go below zero.
-    Cost -= std::max(0, InlineConstants::IndirectCallThreshold - CA.getCost());
+    // threshold to get the bonus we want to apply, but don't go below zero.
+    Cost -= std::max(0, CA.getThreshold() - CA.getCost());
   }
 
   return Base::visitCallSite(CS);
@@ -960,20 +960,21 @@ bool CallAnalyzer::analyzeBlock(BasicBlock *BB,
       continue;
 
     // Skip ephemeral values.
-    if (EphValues.count(I))
+    if (EphValues.count(&*I))
       continue;
 
     ++NumInstructions;
     if (isa<ExtractElementInst>(I) || I->getType()->isVectorTy())
       ++NumVectorInstructions;
 
-    // If the instruction is floating point, and the target says this operation is
-    // expensive or the function has the "use-soft-float" attribute, this may
-    // eventually become a library call.  Treat the cost as such.
+    // If the instruction is floating point, and the target says this operation
+    // is expensive or the function has the "use-soft-float" attribute, this may
+    // eventually become a library call. Treat the cost as such.
     if (I->getType()->isFloatingPointTy()) {
       bool hasSoftFloatAttr = false;
 
-      // If the function has the "use-soft-float" attribute, mark it as expensive.
+      // If the function has the "use-soft-float" attribute, mark it as
+      // expensive.
       if (F.hasFnAttribute("use-soft-float")) {
         Attribute Attr = F.getFnAttribute("use-soft-float");
         StringRef Val = Attr.getValueAsString();
@@ -991,7 +992,7 @@ bool CallAnalyzer::analyzeBlock(BasicBlock *BB,
     // all of the per-instruction logic. The visit tree returns true if we
     // consumed the instruction in any way, and false if the instruction's base
     // cost should count against inlining.
-    if (Base::visit(I))
+    if (Base::visit(&*I))
       ++NumInstructionsSimplified;
     else
       Cost += InlineConstants::InstrCost;
@@ -1171,15 +1172,15 @@ bool CallAnalyzer::analyzeCall(CallSite CS) {
        FAI != FAE; ++FAI, ++CAI) {
     assert(CAI != CS.arg_end());
     if (Constant *C = dyn_cast<Constant>(CAI))
-      SimplifiedValues[FAI] = C;
+      SimplifiedValues[&*FAI] = C;
 
     Value *PtrArg = *CAI;
     if (ConstantInt *C = stripAndComputeInBoundsConstantOffsets(PtrArg)) {
-      ConstantOffsetPtrs[FAI] = std::make_pair(PtrArg, C->getValue());
+      ConstantOffsetPtrs[&*FAI] = std::make_pair(PtrArg, C->getValue());
 
       // We can SROA any pointer arguments derived from alloca instructions.
       if (isa<AllocaInst>(PtrArg)) {
-        SROAArgValues[FAI] = PtrArg;
+        SROAArgValues[&*FAI] = PtrArg;
         SROAArgCosts[PtrArg] = 0;
       }
     }
@@ -1295,7 +1296,7 @@ bool CallAnalyzer::analyzeCall(CallSite CS) {
   else if (NumVectorInstructions <= NumInstructions / 2)
     Threshold -= (FiftyPercentVectorBonus - TenPercentVectorBonus);
 
-  return Cost < Threshold;
+  return Cost <= std::max(0, Threshold);
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
@@ -1318,36 +1319,6 @@ void CallAnalyzer::dump() {
 }
 #endif
 
-INITIALIZE_PASS_BEGIN(InlineCostAnalysis, "inline-cost", "Inline Cost Analysis",
-                      true, true)
-INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(AssumptionCacheTracker)
-INITIALIZE_PASS_END(InlineCostAnalysis, "inline-cost", "Inline Cost Analysis",
-                    true, true)
-
-char InlineCostAnalysis::ID = 0;
-
-InlineCostAnalysis::InlineCostAnalysis() : CallGraphSCCPass(ID) {}
-
-InlineCostAnalysis::~InlineCostAnalysis() {}
-
-void InlineCostAnalysis::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.setPreservesAll();
-  AU.addRequired<AssumptionCacheTracker>();
-  AU.addRequired<TargetTransformInfoWrapperPass>();
-  CallGraphSCCPass::getAnalysisUsage(AU);
-}
-
-bool InlineCostAnalysis::runOnSCC(CallGraphSCC &SCC) {
-  TTIWP = &getAnalysis<TargetTransformInfoWrapperPass>();
-  ACT = &getAnalysis<AssumptionCacheTracker>();
-  return false;
-}
-
-InlineCost InlineCostAnalysis::getInlineCost(CallSite CS, int Threshold) {
-  return getInlineCost(CS, CS.getCalledFunction(), Threshold);
-}
-
 /// \brief Test that two functions either have or have not the given attribute
 ///        at the same time.
 template<typename AttrKind>
@@ -1361,13 +1332,18 @@ static bool functionsHaveCompatibleAttributes(Function *Caller,
                                               Function *Callee,
                                               TargetTransformInfo &TTI) {
   return TTI.areInlineCompatible(Caller, Callee) &&
-         attributeMatches(Caller, Callee, Attribute::SanitizeAddress) &&
-         attributeMatches(Caller, Callee, Attribute::SanitizeMemory) &&
-         attributeMatches(Caller, Callee, Attribute::SanitizeThread);
+         AttributeFuncs::areInlineCompatible(*Caller, *Callee);
 }
 
-InlineCost InlineCostAnalysis::getInlineCost(CallSite CS, Function *Callee,
-                                             int Threshold) {
+InlineCost llvm::getInlineCost(CallSite CS, int Threshold,
+                               TargetTransformInfo &CalleeTTI,
+                               AssumptionCacheTracker *ACT) {
+  return getInlineCost(CS, CS.getCalledFunction(), Threshold, CalleeTTI, ACT);
+}
+
+InlineCost llvm::getInlineCost(CallSite CS, Function *Callee, int Threshold,
+                               TargetTransformInfo &CalleeTTI,
+                               AssumptionCacheTracker *ACT) {
   // Cannot inline indirect calls.
   if (!Callee)
     return llvm::InlineCost::getNever();
@@ -1382,8 +1358,7 @@ InlineCost InlineCostAnalysis::getInlineCost(CallSite CS, Function *Callee,
 
   // Never inline functions with conflicting attributes (unless callee has
   // always-inline attribute).
-  if (!functionsHaveCompatibleAttributes(CS.getCaller(), Callee,
-                                         TTIWP->getTTI(*Callee)))
+  if (!functionsHaveCompatibleAttributes(CS.getCaller(), Callee, CalleeTTI))
     return llvm::InlineCost::getNever();
 
   // Don't inline this call if the caller has the optnone attribute.
@@ -1400,7 +1375,7 @@ InlineCost InlineCostAnalysis::getInlineCost(CallSite CS, Function *Callee,
   DEBUG(llvm::dbgs() << "      Analyzing call of " << Callee->getName()
         << "...\n");
 
-  CallAnalyzer CA(TTIWP->getTTI(*Callee), ACT, *Callee, Threshold, CS);
+  CallAnalyzer CA(CalleeTTI, ACT, *Callee, Threshold, CS);
   bool ShouldInline = CA.analyzeCall(CS);
 
   DEBUG(CA.dump());
@@ -1414,7 +1389,7 @@ InlineCost InlineCostAnalysis::getInlineCost(CallSite CS, Function *Callee,
   return llvm::InlineCost::get(CA.getCost(), CA.getThreshold());
 }
 
-bool InlineCostAnalysis::isInlineViable(Function &F) {
+bool llvm::isInlineViable(Function &F) {
   bool ReturnsTwice = F.hasFnAttribute(Attribute::ReturnsTwice);
   for (Function::iterator BI = F.begin(), BE = F.end(); BI != BE; ++BI) {
     // Disallow inlining of functions which contain indirect branches or
@@ -1422,9 +1397,8 @@ bool InlineCostAnalysis::isInlineViable(Function &F) {
     if (isa<IndirectBrInst>(BI->getTerminator()) || BI->hasAddressTaken())
       return false;
 
-    for (BasicBlock::iterator II = BI->begin(), IE = BI->end(); II != IE;
-         ++II) {
-      CallSite CS(II);
+    for (auto &II : *BI) {
+      CallSite CS(&II);
       if (!CS)
         continue;
 

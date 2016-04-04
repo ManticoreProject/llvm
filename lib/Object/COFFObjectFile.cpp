@@ -174,10 +174,7 @@ ErrorOr<uint64_t> COFFObjectFile::getSymbolAddress(DataRefImpl Ref) const {
 
   // The section VirtualAddress does not include ImageBase, and we want to
   // return virtual addresses.
-  if (PE32Header)
-    Result += PE32Header->ImageBase;
-  else if (PE32PlusHeader)
-    Result += PE32PlusHeader->ImageBase;
+  Result += getImageBase();
 
   return Result;
 }
@@ -274,10 +271,7 @@ uint64_t COFFObjectFile::getSectionAddress(DataRefImpl Ref) const {
 
   // The section VirtualAddress does not include ImageBase, and we want to
   // return virtual addresses.
-  if (PE32Header)
-    Result += PE32Header->ImageBase;
-  else if (PE32PlusHeader)
-    Result += PE32PlusHeader->ImageBase;
+  Result += getImageBase();
   return Result;
 }
 
@@ -424,10 +418,18 @@ std::error_code COFFObjectFile::initSymbolTablePtr() {
   return std::error_code();
 }
 
+uint64_t COFFObjectFile::getImageBase() const {
+  if (PE32Header)
+    return PE32Header->ImageBase;
+  else if (PE32PlusHeader)
+    return PE32PlusHeader->ImageBase;
+  // This actually comes up in practice.
+  return 0;
+}
+
 // Returns the file offset for the given VA.
 std::error_code COFFObjectFile::getVaPtr(uint64_t Addr, uintptr_t &Res) const {
-  uint64_t ImageBase = PE32Header ? (uint64_t)PE32Header->ImageBase
-                                  : (uint64_t)PE32PlusHeader->ImageBase;
+  uint64_t ImageBase = getImageBase();
   uint64_t Rva = Addr - ImageBase;
   assert(Rva <= UINT32_MAX);
   return getRvaPtr((uint32_t)Rva, Res);
@@ -1331,6 +1333,30 @@ ExportDirectoryEntryRef::getSymbolName(StringRef &Result) const {
     return std::error_code();
   }
   Result = "";
+  return std::error_code();
+}
+
+std::error_code ExportDirectoryEntryRef::isForwarder(bool &Result) const {
+  const data_directory *DataEntry;
+  if (auto EC = OwningObject->getDataDirectory(COFF::EXPORT_TABLE, DataEntry))
+    return EC;
+  uint32_t RVA;
+  if (auto EC = getExportRVA(RVA))
+    return EC;
+  uint32_t Begin = DataEntry->RelativeVirtualAddress;
+  uint32_t End = DataEntry->RelativeVirtualAddress + DataEntry->Size;
+  Result = (Begin <= RVA && RVA < End);
+  return std::error_code();
+}
+
+std::error_code ExportDirectoryEntryRef::getForwardTo(StringRef &Result) const {
+  uint32_t RVA;
+  if (auto EC = getExportRVA(RVA))
+    return EC;
+  uintptr_t IntPtr = 0;
+  if (auto EC = OwningObject->getRvaPtr(RVA, IntPtr))
+    return EC;
+  Result = StringRef(reinterpret_cast<const char *>(IntPtr));
   return std::error_code();
 }
 

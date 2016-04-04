@@ -182,8 +182,9 @@ UseVZeroUpper("x86-use-vzeroupper", cl::Hidden,
 //===----------------------------------------------------------------------===//
 
 TargetIRAnalysis X86TargetMachine::getTargetIRAnalysis() {
-  return TargetIRAnalysis(
-      [this](Function &F) { return TargetTransformInfo(X86TTIImpl(this, F)); });
+  return TargetIRAnalysis([this](const Function &F) {
+    return TargetTransformInfo(X86TTIImpl(this, F));
+  });
 }
 
 
@@ -253,6 +254,9 @@ bool X86PassConfig::addPreISel() {
 }
 
 void X86PassConfig::addPreRegAlloc() {
+  if (getOptLevel() != CodeGenOpt::None)
+    addPass(createX86OptimizeLEAs());
+
   addPass(createX86CallFrameOptimization());
 }
 

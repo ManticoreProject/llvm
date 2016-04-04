@@ -361,7 +361,7 @@ static int readPrefixes(struct InternalInstruction* insn) {
        * then it should be disassembled as a xacquire/xrelease not repne/rep.
        */
       if ((byte == 0xf2 || byte == 0xf3) &&
-          ((nextByte == 0xf0) |
+          ((nextByte == 0xf0) ||
           ((nextByte & 0xfe) == 0x86 || (nextByte & 0xf8) == 0x90)))
         insn->xAcquireRelease = true;
       /*
@@ -990,8 +990,8 @@ static int getID(struct InternalInstruction* insn, const void *miiArg) {
     switch (insn->opcode) {
     case 0xE8:
     case 0xE9:
-      if (insn->opcodeType ==
-          ONEBYTE) { // breaks psubsb and other mmx instructions otherwise
+      // Take care of psubsb and other mmx instructions.
+      if (insn->opcodeType == ONEBYTE) {
         attrMask ^= ATTR_OPSIZE;
         insn->immediateSize = 4;
         insn->displacementSize = 4;
@@ -1011,11 +1011,11 @@ static int getID(struct InternalInstruction* insn, const void *miiArg) {
     case 0x8D:
     case 0x8E:
     case 0x8F:
-      if (insn->opcodeType ==
-          TWOBYTE) { // breaks lea and three byte ops otherwise
+      // Take care of lea and three byte ops.
+      if (insn->opcodeType == TWOBYTE) {
         attrMask ^= ATTR_OPSIZE;
         insn->immediateSize = 4;
-        insn->displacementSize = 4; // otherwise not sign extended
+        insn->displacementSize = 4;
       }
       break;
     }
@@ -1488,8 +1488,12 @@ static int readModRM(struct InternalInstruction* insn) {
     case TYPE_XMM:                                        \
       return prefix##_XMM0 + index;                       \
     case TYPE_VK1:                                        \
+    case TYPE_VK2:                                        \
+    case TYPE_VK4:                                        \
     case TYPE_VK8:                                        \
     case TYPE_VK16:                                       \
+    case TYPE_VK32:                                       \
+    case TYPE_VK64:                                       \
       if (index > 7)                                      \
         *valid = 0;                                       \
       return prefix##_K0 + index;                         \

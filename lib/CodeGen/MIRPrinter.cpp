@@ -439,7 +439,7 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
     OS << "address-taken";
     HasAttributes = true;
   }
-  if (MBB.isLandingPad()) {
+  if (MBB.isEHPad()) {
     OS << (HasAttributes ? ", " : " (");
     OS << "landing-pad";
     HasAttributes = true;
@@ -461,8 +461,8 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
       if (I != MBB.succ_begin())
         OS << ", ";
       printMBBReference(**I);
-      if (MBB.hasSuccessorWeights())
-        OS << '(' << MBB.getSuccWeight(I) << ')';
+      if (MBB.hasSuccessorProbabilities())
+        OS << '(' << MBB.getSuccProbability(I) << ')';
     }
     OS << "\n";
     HasLineAttributes = true;
@@ -474,11 +474,13 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
   if (!MBB.livein_empty()) {
     OS.indent(2) << "liveins: ";
     bool First = true;
-    for (unsigned LI : MBB.liveins()) {
+    for (const auto &LI : MBB.liveins()) {
       if (!First)
         OS << ", ";
       First = false;
-      printReg(LI, OS, TRI);
+      printReg(LI.PhysReg, OS, TRI);
+      if (LI.LaneMask != ~0u)
+        OS << ':' << PrintLaneMask(LI.LaneMask);
     }
     OS << "\n";
     HasLineAttributes = true;

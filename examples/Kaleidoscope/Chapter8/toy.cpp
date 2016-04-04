@@ -163,7 +163,7 @@ static int gettok() {
       LastChar = advance();
     } while (isdigit(LastChar) || LastChar == '.');
 
-    NumVal = strtod(NumStr.c_str(), 0);
+    NumVal = strtod(NumStr.c_str(), nullptr);
     return tok_number;
   }
 
@@ -431,6 +431,7 @@ std::unique_ptr<ExprAST> Error(const char *Str) {
   fprintf(stderr, "Error: %s\n", Str);
   return nullptr;
 }
+
 std::unique_ptr<PrototypeAST> ErrorP(const char *Str) {
   Error(Str);
   return nullptr;
@@ -847,8 +848,7 @@ static DISubroutineType *CreateFunctionType(unsigned NumArgs, DIFile *Unit) {
   for (unsigned i = 0, e = NumArgs; i != e; ++i)
     EltTys.push_back(DblTy);
 
-  return DBuilder->createSubroutineType(Unit,
-                                        DBuilder->getOrCreateTypeArray(EltTys));
+  return DBuilder->createSubroutineType(DBuilder->getOrCreateTypeArray(EltTys));
 }
 
 //===----------------------------------------------------------------------===//
@@ -886,7 +886,7 @@ static AllocaInst *CreateEntryBlockAlloca(Function *TheFunction,
                                           const std::string &VarName) {
   IRBuilder<> TmpB(&TheFunction->getEntryBlock(),
                    TheFunction->getEntryBlock().begin());
-  return TmpB.CreateAlloca(Type::getDoubleTy(getGlobalContext()), 0,
+  return TmpB.CreateAlloca(Type::getDoubleTy(getGlobalContext()), nullptr,
                            VarName.c_str());
 }
 
@@ -1251,7 +1251,8 @@ Function *FunctionAST::codegen() {
       FContext, P.getName(), StringRef(), Unit, LineNo,
       CreateFunctionType(TheFunction->arg_size(), Unit),
       false /* internal linkage */, true /* definition */, ScopeLine,
-      DINode::FlagPrototyped, false, TheFunction);
+      DINode::FlagPrototyped, false);
+  TheFunction->setSubprogram(SP);
 
   // Push the current scope.
   KSDbgInfo.LexicalBlocks.push_back(SP);
@@ -1383,13 +1384,13 @@ static void MainLoop() {
 //===----------------------------------------------------------------------===//
 
 /// putchard - putchar that takes a double and returns 0.
-__attribute__((used)) extern "C" double putchard(double X) {
+extern "C" double putchard(double X) {
   fputc((char)X, stderr);
   return 0;
 }
 
 /// printd - printf that takes a double prints it as "%f\n", returning 0.
-__attribute__((used)) extern "C" double printd(double X) {
+extern "C" double printd(double X) {
   fprintf(stderr, "%f\n", X);
   return 0;
 }

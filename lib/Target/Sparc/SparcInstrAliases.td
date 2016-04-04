@@ -250,6 +250,7 @@ defm : int_cond_alias<"n",    0b0000>;
 defm : int_cond_alias<"ne",   0b1001>;
 defm : int_cond_alias<"nz",   0b1001>; // same as ne
 defm : int_cond_alias<"e",    0b0001>;
+defm : int_cond_alias<"eq",    0b0001>; // same as e
 defm : int_cond_alias<"z",    0b0001>; // same as e
 defm : int_cond_alias<"g",    0b1010>;
 defm : int_cond_alias<"le",   0b0010>;
@@ -266,9 +267,9 @@ defm : int_cond_alias<"neg",  0b0110>;
 defm : int_cond_alias<"vc",   0b1111>;
 defm : int_cond_alias<"vs",   0b0111>;
 
-defm : fp_cond_alias<"a",     0b0000>;
-defm : fp_cond_alias<"",      0b0000>; // same as a; gnu asm, not in manual
-defm : fp_cond_alias<"n",     0b1000>;
+defm : fp_cond_alias<"a",     0b1000>;
+defm : fp_cond_alias<"",      0b1000>; // same as a; gnu asm, not in manual
+defm : fp_cond_alias<"n",     0b0000>;
 defm : fp_cond_alias<"u",     0b0111>;
 defm : fp_cond_alias<"g",     0b0110>;
 defm : fp_cond_alias<"ug",    0b0101>;

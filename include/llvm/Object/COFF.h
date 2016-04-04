@@ -773,6 +773,7 @@ public:
   std::error_code getSectionContents(const coff_section *Sec,
                                      ArrayRef<uint8_t> &Res) const;
 
+  uint64_t getImageBase() const;
   std::error_code getVaPtr(uint64_t VA, uintptr_t &Res) const;
   std::error_code getRvaPtr(uint32_t Rva, uintptr_t &Res) const;
   std::error_code getHintName(uint32_t Rva, uint16_t &Hint,
@@ -856,6 +857,9 @@ public:
   std::error_code getOrdinal(uint32_t &Result) const;
   std::error_code getExportRVA(uint32_t &Result) const;
   std::error_code getSymbolName(StringRef &Result) const;
+
+  std::error_code isForwarder(bool &Result) const;
+  std::error_code getForwardTo(StringRef &Result) const;
 
 private:
   const export_directory_table_entry *ExportTable;

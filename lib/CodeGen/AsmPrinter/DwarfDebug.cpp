@@ -77,17 +77,6 @@ static cl::opt<bool> GenerateARangeSection("generate-arange-section",
                                            cl::desc("Generate dwarf aranges"),
                                            cl::init(false));
 
-static cl::opt<DebuggerKind>
-DebuggerTuningOpt("debugger-tune",
-                  cl::desc("Tune debug info for a particular debugger"),
-                  cl::init(DebuggerKind::Default),
-                  cl::values(
-                      clEnumValN(DebuggerKind::GDB, "gdb", "gdb"),
-                      clEnumValN(DebuggerKind::LLDB, "lldb", "lldb"),
-                      clEnumValN(DebuggerKind::SCE, "sce",
-                                 "SCE targets (e.g. PS4)"),
-                      clEnumValEnd));
-
 namespace {
 enum DefaultOnOff { Default, Enable, Disable };
 }
@@ -214,7 +203,6 @@ static LLVM_CONSTEXPR DwarfAccelTable::Atom TypeAtoms[] = {
 DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
     : Asm(A), MMI(Asm->MMI), DebugLocs(A->OutStreamer->isVerboseAsm()),
       PrevLabel(nullptr), InfoHolder(A, "info_string", DIEValueAllocator),
-      UsedNonDefaultText(false),
       SkeletonHolder(A, "skel_string", DIEValueAllocator),
       IsDarwin(Triple(A->getTargetTriple()).isOSDarwin()),
       AccelNames(DwarfAccelTable::Atom(dwarf::DW_ATOM_die_offset,
@@ -229,11 +217,11 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
   CurMI = nullptr;
   Triple TT(Asm->getTargetTriple());
 
-  // Make sure we know our "debugger tuning."  The command-line option takes
+  // Make sure we know our "debugger tuning."  The target option takes
   // precedence; fall back to triple-based defaults.
-  if (DebuggerTuningOpt != DebuggerKind::Default)
-    DebuggerTuning = DebuggerTuningOpt;
-  else if (IsDarwin || TT.isOSFreeBSD())
+  if (Asm->TM.Options.DebuggerTuning != DebuggerKind::Default)
+    DebuggerTuning = Asm->TM.Options.DebuggerTuning;
+  else if (IsDarwin)
     DebuggerTuning = DebuggerKind::LLDB;
   else if (TT.isPS4CPU())
     DebuggerTuning = DebuggerKind::SCE;
@@ -343,18 +331,6 @@ void DwarfDebug::addSubprogramNames(const DISubprogram *SP, DIE &Die) {
   }
 }
 
-/// isSubprogramContext - Return true if Context is either a subprogram
-/// or another context nested inside a subprogram.
-bool DwarfDebug::isSubprogramContext(const MDNode *Context) {
-  if (!Context)
-    return false;
-  if (isa<DISubprogram>(Context))
-    return true;
-  if (auto *T = dyn_cast<DIType>(Context))
-    return isSubprogramContext(resolve(T->getScope()));
-  return false;
-}
-
 /// Check whether we should create a DIE for the given Scope, return true
 /// if we don't create a DIE (the corresponding DIE is null).
 bool DwarfDebug::isLexicalScopeDIENull(LexicalScope *Scope) {
@@ -459,6 +435,16 @@ DwarfDebug::constructDwarfCompileUnit(const DICompileUnit *DIUnit) {
   else
     NewCU.initSection(Asm->getObjFileLowering().getDwarfInfoSection());
 
+  if (DIUnit->getDWOId()) {
+    // This CU is either a clang module DWO or a skeleton CU.
+    NewCU.addUInt(Die, dwarf::DW_AT_GNU_dwo_id, dwarf::DW_FORM_data8,
+                  DIUnit->getDWOId());
+    if (!DIUnit->getSplitDebugFilename().empty())
+      // This is a prefabricated skeleton CU.
+      NewCU.addString(Die, dwarf::DW_AT_GNU_dwo_name,
+                      DIUnit->getSplitDebugFilename());
+  }
+
   CUMap.insert(std::make_pair(DIUnit, &NewCU));
   CUDieMap.insert(std::make_pair(&Die, &NewCU));
   return NewCU;
@@ -479,8 +465,6 @@ void DwarfDebug::beginModule() {
 
   const Module *M = MMI->getModule();
 
-  FunctionDIs = makeSubprogramMap(*M);
-
   NamedMDNode *CU_Nodes = M->getNamedMetadata("llvm.dbg.cu");
   if (!CU_Nodes)
     return;
@@ -492,12 +476,7 @@ void DwarfDebug::beginModule() {
     auto *CUNode = cast<DICompileUnit>(N);
     DwarfCompileUnit &CU = constructDwarfCompileUnit(CUNode);
     for (auto *IE : CUNode->getImportedEntities())
-      ScopesWithImportedEntities.push_back(std::make_pair(IE->getScope(), IE));
-    // Stable sort to preserve the order of appearance of imported entities.
-    // This is to avoid out-of-order processing of interdependent declarations
-    // within the same scope, e.g. { namespace A = base; namespace B = A; }
-    std::stable_sort(ScopesWithImportedEntities.begin(),
-                     ScopesWithImportedEntities.end(), less_first());
+      CU.addImportedEntity(IE);
     for (auto *GV : CUNode->getGlobalVariables())
       CU.getOrCreateGlobalVariableDIE(GV);
     for (auto *SP : CUNode->getSubprograms())
@@ -582,6 +561,8 @@ void DwarfDebug::finalizeModuleInfo() {
   // Collect info for variables that were optimized out.
   collectDeadVariables();
 
+  unsigned MacroOffset = 0;
+  std::unique_ptr<AsmStreamerBase> AS(new SizeReporterAsmStreamer(Asm));
   // Handle anything that needs to be done on a per-unit basis after
   // all other generation.
   for (const auto &P : CUMap) {
@@ -634,6 +615,15 @@ void DwarfDebug::finalizeModuleInfo() {
         U.setBaseAddress(TheCU.getRanges().front().getStart());
       U.attachRangesOrLowHighPC(U.getUnitDie(), TheCU.takeRanges());
     }
+
+    auto *CUNode = cast<DICompileUnit>(P.first);
+    if (CUNode->getMacros()) {
+      // Compile Unit has macros, emit "DW_AT_macro_info" attribute.
+      U.addUInt(U.getUnitDie(), dwarf::DW_AT_macro_info,
+                dwarf::DW_FORM_sec_offset, MacroOffset);
+      // Update macro section offset
+      MacroOffset += handleMacroNodes(AS.get(), CUNode->getMacros(), U);
+    }
   }
 
   // Compute DIE offsets and sizes.
@@ -676,6 +666,9 @@ void DwarfDebug::endModule() {
 
   // Emit info into a debug ranges section.
   emitDebugRanges();
+
+  // Emit info into a debug macinfo section.
+  emitDebugMacinfo();
 
   if (useSplitDwarf()) {
     emitDebugStrDWO();
@@ -800,16 +793,63 @@ static DebugLocEntry::Value getDebugLocValue(const MachineInstr *MI) {
   llvm_unreachable("Unexpected 4-operand DBG_VALUE instruction!");
 }
 
-/// Determine whether two variable pieces overlap.
-static bool piecesOverlap(const DIExpression *P1, const DIExpression *P2) {
-  if (!P1->isBitPiece() || !P2->isBitPiece())
-    return true;
+// Determine the relative position of the pieces described by P1 and P2.
+// Returns  -1 if P1 is entirely before P2, 0 if P1 and P2 overlap,
+// 1 if P1 is entirely after P2.
+static int pieceCmp(const DIExpression *P1, const DIExpression *P2) {
   unsigned l1 = P1->getBitPieceOffset();
   unsigned l2 = P2->getBitPieceOffset();
   unsigned r1 = l1 + P1->getBitPieceSize();
   unsigned r2 = l2 + P2->getBitPieceSize();
-  // True where [l1,r1[ and [r1,r2[ overlap.
-  return (l1 < r2) && (l2 < r1);
+  if (r1 <= l2)
+    return -1;
+  else if (r2 <= l1)
+    return 1;
+  else
+    return 0;
+}
+
+/// Determine whether two variable pieces overlap.
+static bool piecesOverlap(const DIExpression *P1, const DIExpression *P2) {
+  if (!P1->isBitPiece() || !P2->isBitPiece())
+    return true;
+  return pieceCmp(P1, P2) == 0;
+}
+
+/// \brief If this and Next are describing different pieces of the same
+/// variable, merge them by appending Next's values to the current
+/// list of values.
+/// Return true if the merge was successful.
+bool DebugLocEntry::MergeValues(const DebugLocEntry &Next) {
+  if (Begin == Next.Begin) {
+    auto *FirstExpr = cast<DIExpression>(Values[0].Expression);
+    auto *FirstNextExpr = cast<DIExpression>(Next.Values[0].Expression);
+    if (!FirstExpr->isBitPiece() || !FirstNextExpr->isBitPiece())
+      return false;
+
+    // We can only merge entries if none of the pieces overlap any others.
+    // In doing so, we can take advantage of the fact that both lists are
+    // sorted.
+    for (unsigned i = 0, j = 0; i < Values.size(); ++i) {
+      for (; j < Next.Values.size(); ++j) {
+        int res = pieceCmp(cast<DIExpression>(Values[i].Expression),
+                           cast<DIExpression>(Next.Values[j].Expression));
+        if (res == 0) // The two expressions overlap, we can't merge.
+          return false;
+        // Values[i] is entirely before Next.Values[j],
+        // so go back to the next entry of Values.
+        else if (res == -1)
+          break;
+        // Next.Values[j] is entirely before Values[i], so go on to the
+        // next entry of Next.Values.
+      }
+    }
+
+    addValues(Next.Values);
+    End = Next.End;
+    return true;
+  }
+  return false;
 }
 
 /// Build the location list for all DBG_VALUEs in the function that
@@ -1107,12 +1147,8 @@ static DebugLoc findPrologueEndLoc(const MachineFunction *MF) {
   for (const auto &MBB : *MF)
     for (const auto &MI : MBB)
       if (!MI.isDebugValue() && !MI.getFlag(MachineInstr::FrameSetup) &&
-          MI.getDebugLoc()) {
-        // Did the target forget to set the FrameSetup flag for CFI insns?
-        assert(!MI.isCFIInstruction() &&
-               "First non-frame-setup instruction is a CFI instruction.");
+          MI.getDebugLoc())
         return MI.getDebugLoc();
-      }
   return DebugLoc();
 }
 
@@ -1125,8 +1161,8 @@ void DwarfDebug::beginFunction(const MachineFunction *MF) {
   if (!MMI->hasDebugInfo())
     return;
 
-  auto DI = FunctionDIs.find(MF->getFunction());
-  if (DI == FunctionDIs.end())
+  auto DI = MF->getFunction()->getSubprogram();
+  if (!DI)
     return;
 
   // Grab the lexical scopes for the function, if we don't have any of those
@@ -1217,7 +1253,7 @@ void DwarfDebug::endFunction(const MachineFunction *MF) {
       "endFunction should be called with the same function as beginFunction");
 
   if (!MMI->hasDebugInfo() || LScopes.empty() ||
-      !FunctionDIs.count(MF->getFunction())) {
+      !MF->getFunction()->getSubprogram()) {
     // If we don't have a lexical scope for this function then there will
     // be a hole in the range information. Keep note of this by setting the
     // previously used section to nullptr.
@@ -1856,6 +1892,70 @@ void DwarfDebug::emitDebugRanges() {
       Asm->OutStreamer->EmitIntValue(0, Size);
     }
   }
+}
+
+unsigned DwarfDebug::handleMacroNodes(AsmStreamerBase *AS,
+                                      DIMacroNodeArray Nodes,
+                                      DwarfCompileUnit &U) {
+  unsigned Size = 0;
+  for (auto *MN : Nodes) {
+    if (auto *M = dyn_cast<DIMacro>(MN))
+      Size += emitMacro(AS, *M);
+    else if (auto *F = dyn_cast<DIMacroFile>(MN))
+      Size += emitMacroFile(AS, *F, U);
+    else
+      llvm_unreachable("Unexpected DI type!");
+  }
+  return Size;
+}
+
+unsigned DwarfDebug::emitMacro(AsmStreamerBase *AS, DIMacro &M) {
+  int Size = 0;
+  Size += AS->emitULEB128(M.getMacinfoType());
+  Size += AS->emitULEB128(M.getLine());
+  StringRef Name = M.getName();
+  StringRef Value = M.getValue();
+  Size += AS->emitBytes(Name);
+  if (!Value.empty()) {
+    // There should be one space between macro name and macro value.
+    Size += AS->emitInt8(' ');
+    Size += AS->emitBytes(Value);
+  }
+  Size += AS->emitInt8('\0');
+  return Size;
+}
+
+unsigned DwarfDebug::emitMacroFile(AsmStreamerBase *AS, DIMacroFile &F,
+                                   DwarfCompileUnit &U) {
+  int Size = 0;
+  assert(F.getMacinfoType() == dwarf::DW_MACINFO_start_file);
+  Size += AS->emitULEB128(dwarf::DW_MACINFO_start_file);
+  Size += AS->emitULEB128(F.getLine());
+  DIFile *File = F.getFile();
+  unsigned FID =
+      U.getOrCreateSourceID(File->getFilename(), File->getDirectory());
+  Size += AS->emitULEB128(FID);
+  Size += handleMacroNodes(AS, F.getElements(), U);
+  Size += AS->emitULEB128(dwarf::DW_MACINFO_end_file);
+  return Size;
+}
+
+// Emit visible names into a debug macinfo section.
+void DwarfDebug::emitDebugMacinfo() {
+  if (MCSection *Macinfo = Asm->getObjFileLowering().getDwarfMacinfoSection()) {
+    // Start the dwarf macinfo section.
+    Asm->OutStreamer->SwitchSection(Macinfo);
+  }
+  std::unique_ptr<AsmStreamerBase> AS(new EmittingAsmStreamer(Asm));
+  for (const auto &P : CUMap) {
+    auto &TheCU = *P.second;
+    auto *SkCU = TheCU.getSkeleton();
+    DwarfCompileUnit &U = SkCU ? *SkCU : TheCU;
+    auto *CUNode = cast<DICompileUnit>(P.first);
+    handleMacroNodes(AS.get(), CUNode->getMacros(), U);
+  }
+  Asm->OutStreamer->AddComment("End Of Macro List Mark");
+  Asm->EmitInt8(0);
 }
 
 // DWARF5 Experimental Separate Dwarf emitters.

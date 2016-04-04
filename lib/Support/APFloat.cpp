@@ -768,6 +768,15 @@ APFloat::isLargest() const {
 }
 
 bool
+APFloat::isInteger() const {
+  // This could be made more efficient; I'm going for obviously correct.
+  if (!isFinite()) return false;
+  APFloat truncated = *this;
+  truncated.roundToIntegral(rmTowardZero);
+  return compare(truncated) == cmpEqual;
+}
+
+bool
 APFloat::bitwiseIsEqual(const APFloat &rhs) const {
   if (this == &rhs)
     return true;
@@ -1771,7 +1780,7 @@ APFloat::remainder(const APFloat &rhs)
 /* Normalized llvm frem (C fmod).
    This is not currently correct in all cases.  */
 APFloat::opStatus
-APFloat::mod(const APFloat &rhs, roundingMode rounding_mode)
+APFloat::mod(const APFloat &rhs)
 {
   opStatus fs;
   fs = modSpecials(rhs);
@@ -1796,10 +1805,10 @@ APFloat::mod(const APFloat &rhs, roundingMode rounding_mode)
                                           rmNearestTiesToEven);
     assert(fs==opOK);   // should always work
 
-    fs = V.multiply(rhs, rounding_mode);
+    fs = V.multiply(rhs, rmNearestTiesToEven);
     assert(fs==opOK || fs==opInexact);   // should not overflow or underflow
 
-    fs = subtract(V, rounding_mode);
+    fs = subtract(V, rmNearestTiesToEven);
     assert(fs==opOK || fs==opInexact);   // likewise
 
     if (isZero())

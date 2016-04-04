@@ -1,5 +1,4 @@
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Analysis/BasicAliasAnalysis.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
@@ -66,7 +65,7 @@ static int gettok() {
       LastChar = getchar();
     } while (isdigit(LastChar) || LastChar == '.');
 
-    NumVal = strtod(NumStr.c_str(), 0);
+    NumVal = strtod(NumStr.c_str(), nullptr);
     return tok_number;
   }
 
@@ -201,6 +200,7 @@ std::unique_ptr<ExprAST> Error(const char *Str) {
   fprintf(stderr, "Error: %s\n", Str);
   return nullptr;
 }
+
 std::unique_ptr<PrototypeAST> ErrorP(const char *Str) {
   Error(Str);
   return nullptr;
@@ -534,8 +534,6 @@ static void InitializeModuleAndPassManager() {
   // Create a new pass manager attached to it.
   TheFPM = llvm::make_unique<legacy::FunctionPassManager>(TheModule.get());
 
-  // Provide basic AliasAnalysis support for GVN.
-  TheFPM->add(createBasicAliasAnalysisPass());
   // Do simple "peephole" optimizations and bit-twiddling optzns.
   TheFPM->add(createInstructionCombiningPass());
   // Reassociate expressions.
@@ -631,13 +629,13 @@ static void MainLoop() {
 //===----------------------------------------------------------------------===//
 
 /// putchard - putchar that takes a double and returns 0.
-__attribute__((used)) extern "C" double putchard(double X) {
+extern "C" double putchard(double X) {
   fputc((char)X, stderr);
   return 0;
 }
 
 /// printd - printf that takes a double prints it as "%f\n", returning 0.
-__attribute__((used)) extern "C" double printd(double X) {
+extern "C" double printd(double X) {
   fprintf(stderr, "%f\n", X);
   return 0;
 }
