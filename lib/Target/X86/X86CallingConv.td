@@ -439,13 +439,13 @@ def CC_X86_64_JWA : CallingConv<[
   // Promote i8/i16/i32 arguments to i64.
   CCIfType<[i8, i16, i32], CCPromoteToType<i64>>,
 
-  // Could probably select some optimal order, this is just going down
-  // the list went down the list, skipping RBP and RSP in case one
-  // wants to call C functions.
-
+  // We skip RBP and RSP in case one wants to call C functions.
+  
+  // NOTE(kavon): alloc, vproc, clos, retk, exh, stdArg, otherArgs
+  
   CCIfType<[i64],
-  CCAssignToReg<[RAX, RBX, RCX, RDX, RSI, RDI, 
-                 R8, R9, R10, R11, R12, R13, R14, R15]>>,
+  CCAssignToReg<[RSI, R11, RDI, R8, R9, RAX, 
+                 RDX, RCX, R10, RBX, R12, R13, R14, R15]>>,
 
 
   // TODO(kavon): check if something breaks if the target
