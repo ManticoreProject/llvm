@@ -1,4 +1,4 @@
-# keeping it simple because this YML file is poorly documented/defined
+# keeping it simple because this YML file is poorly documented/defined.
 
 build:
     stage: build
