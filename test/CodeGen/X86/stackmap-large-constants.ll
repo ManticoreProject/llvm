@@ -17,9 +17,11 @@
 ; function address & stack size
 ; CHECK-NEXT: 	.quad	_foo
 ; CHECK-NEXT: 	.quad	8
+; CHECK-NEXT:   .long	1
 ; function address & stack size
 ; CHECK-NEXT: 	.quad	_bar
 ; CHECK-NEXT: 	.quad	8
+; CHECK-NEXT:   .long	1
 
 ; Constants Array:
 ; CHECK-NEXT: 	.quad	9223372036854775807

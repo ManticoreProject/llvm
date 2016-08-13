@@ -61,8 +61,10 @@ declare token @llvm.experimental.gc.statepoint.p0f_i1f(i64, i32, i1 ()*, i32, i3
 ; Functions and stack size
 ; CHECK-NEXT:   .quad test
 ; CHECK-NEXT:   .quad 8
+; CHECK-NEXT:   .long 1
 ; CHECK-NEXT:   .quad test2
 ; CHECK-NEXT:   .quad 8
+; CHECK-NEXT:   .long 1
 
 ; Large Constants
 ; Statepoint ID only
@@ -127,4 +129,3 @@ declare token @llvm.experimental.gc.statepoint.p0f_i1f(i64, i32, i1 ()*, i32, i3
 ; CHECK: .short	0
 ; CHECK: .short	0
 ; CHECK: .p2align	3
-

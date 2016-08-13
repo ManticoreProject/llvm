@@ -20,20 +20,28 @@
 ; Functions and stack size
 ; CHECK-NEXT:   .quad _test
 ; CHECK-NEXT:   .quad 8
+; CHECK-NEXT:   .long 1
 ; CHECK-NEXT:   .quad _property_access1
 ; CHECK-NEXT:   .quad 8
+; CHECK-NEXT:   .long 1
 ; CHECK-NEXT:   .quad _property_access2
 ; CHECK-NEXT:   .quad 24
+; CHECK-NEXT:   .long 1
 ; CHECK-NEXT:   .quad _property_access3
 ; CHECK-NEXT:   .quad 24
+; CHECK-NEXT:   .long 1
 ; CHECK-NEXT:   .quad _anyreg_test1
 ; CHECK-NEXT:   .quad 56
+; CHECK-NEXT:   .long 1
 ; CHECK-NEXT:   .quad _anyreg_test2
 ; CHECK-NEXT:   .quad 56
+; CHECK-NEXT:   .long 1
 ; CHECK-NEXT:   .quad _patchpoint_spilldef
 ; CHECK-NEXT:   .quad 56
+; CHECK-NEXT:   .long 1
 ; CHECK-NEXT:   .quad _patchpoint_spillargs
 ; CHECK-NEXT:   .quad 88
+; CHECK-NEXT:   .long 1
 
 ; No constants
 

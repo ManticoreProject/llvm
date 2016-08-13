@@ -19,8 +19,10 @@
 ; Functions and stack size
 ; CHECK-NEXT:   .quad _stackmap_liveness
 ; CHECK-NEXT:   .quad 8
+; CHECK-NEXT:   .long 3
 ; CHECK-NEXT:   .quad _mixed_liveness
 ; CHECK-NEXT:   .quad 8
+; CHECK-NEXT:   .long 2
 
 define void @stackmap_liveness() {
 entry:
