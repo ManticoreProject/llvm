@@ -435,7 +435,7 @@ precisely determine the location of values at a specific position in
 the code. LLVM does not maintain any mapping between those values and
 any higher-level entity. The runtime must be able to interpret the
 stack map record given only the ID, offset, and the order of the
-locations, which LLVM preserves.
+locations, records, and functions, which LLVM preserves.
 
 Note that this is quite different from the goal of debug information,
 which is a best-effort attempt to track the location of named
