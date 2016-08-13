@@ -340,10 +340,9 @@ void StackMaps::recordStackMapOpers(const MachineInstr &MI, uint64_t ID,
   uint64_t FrameSize = HasDynamicFrameSize ? UINT64_MAX : MFI.getStackSize(); 
   
   if (FnInfo.count(AP.CurrentFnSym)) {
-      std::pair<uint64_t,uint64_t> current = FnInfo[AP.CurrentFnSym];
+      std::pair<uint64_t,uint32_t> &current = FnInfo[AP.CurrentFnSym];
       current.first = FrameSize;
       current.second = current.second + 1;
-      FnInfo[AP.CurrentFnSym] = current;
   } else {
       FnInfo[AP.CurrentFnSym] = std::make_pair(FrameSize, 1);;
   }
@@ -421,7 +420,7 @@ void StackMaps::emitStackmapHeader(MCStreamer &OS) {
 /// StkSizeRecord[NumFunctions] {
 ///   uint64 : Function Address
 ///   uint64 : Stack Size
-///   uint64 : Record Count
+///   uint32 : Record Count
 /// }
 void StackMaps::emitFunctionFrameRecords(MCStreamer &OS) {
   // Function Frame records.
@@ -432,7 +431,7 @@ void StackMaps::emitFunctionFrameRecords(MCStreamer &OS) {
                  << " callsite count: " << FR.second.second << '\n');
     OS.EmitSymbolValue(FR.first, 8);
     OS.EmitIntValue(FR.second.first, 8);
-    OS.EmitIntValue(FR.second.second, 8);
+    OS.EmitIntValue(FR.second.second, 4);
   }
 }
 

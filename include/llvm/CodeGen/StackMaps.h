@@ -192,7 +192,7 @@ private:
   typedef SmallVector<LiveOutReg, 8> LiveOutVec;
   typedef MapVector<uint64_t, uint64_t> ConstantPool;
   // value is  pair<stack size, call site count>
-  typedef MapVector<const MCSymbol *, std::pair<uint64_t,uint64_t>> FnInfoMap;
+  typedef MapVector<const MCSymbol *, std::pair<uint64_t,uint32_t>> FnInfoMap;
 
   struct CallsiteInfo {
     const MCExpr *CSOffsetExpr;

@@ -329,6 +329,7 @@ format of this section follows:
   StkSizeRecord[NumFunctions] {
     uint64 : Function Address
     uint64 : Stack Size
+    uint32 : Record Count
   }
   Constants[NumConstants] {
     uint64 : LargeConstant
@@ -508,4 +509,3 @@ Support for StackMap generation and the related intrinsics requires
 some code for each backend.  Today, only a subset of LLVM's backends 
 are supported.  The currently supported architectures are X86_64, 
 PowerPC, and Aarch64.
-
