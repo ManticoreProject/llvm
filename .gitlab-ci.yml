@@ -1,0 +1,13 @@
+# keeping it simple because this YML file is poorly documented/defined
+
+build:
+    stage: build
+    script:
+        - uname -a
+        - mkdir ./ci-temp
+        - mkdir ./ci-temp/build
+        - mkdir ./ci-temp/install
+        - cd ./ci-temp/build
+        - cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX=../install -DCMAKE_BUILD_TYPE=Debug -DLLVM_ENABLE_ASSERTIONS=On ../../
+        - make -j 4
+        - make check-llvm -j 8
