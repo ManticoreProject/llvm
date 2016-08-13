@@ -332,13 +332,21 @@ void StackMaps::recordStackMapOpers(const MachineInstr &MI, uint64_t ID,
   CSInfos.emplace_back(CSOffsetExpr, ID, std::move(Locations),
                        std::move(LiveOuts));
 
-  // Record the stack size of the current function.
+  // Record the stack size of the current function and update callsite count.
   const MachineFrameInfo &MFI = AP.MF->getFrameInfo();
   const TargetRegisterInfo *RegInfo = AP.MF->getSubtarget().getRegisterInfo();
   bool HasDynamicFrameSize =
       MFI.hasVarSizedObjects() || RegInfo->needsStackRealignment(*(AP.MF));
-  FnStackSize[AP.CurrentFnSym] =
-      HasDynamicFrameSize ? UINT64_MAX : MFI.getStackSize();
+  uint64_t FrameSize = HasDynamicFrameSize ? UINT64_MAX : MFI.getStackSize(); 
+  
+  if (FnInfo.count(AP.CurrentFnSym)) {
+      std::pair<uint64_t,uint64_t> current = FnInfo[AP.CurrentFnSym];
+      current.first = FrameSize;
+      current.second = current.second + 1;
+      FnInfo[AP.CurrentFnSym] = current;
+  } else {
+      FnInfo[AP.CurrentFnSym] = std::make_pair(FrameSize, 1);;
+  }
 }
 
 void StackMaps::recordStackMap(const MachineInstr &MI) {
@@ -398,8 +406,8 @@ void StackMaps::emitStackmapHeader(MCStreamer &OS) {
   OS.EmitIntValue(0, 2);               // Reserved.
 
   // Num functions.
-  DEBUG(dbgs() << WSMP << "#functions = " << FnStackSize.size() << '\n');
-  OS.EmitIntValue(FnStackSize.size(), 4);
+  DEBUG(dbgs() << WSMP << "#functions = " << FnInfo.size() << '\n');
+  OS.EmitIntValue(FnInfo.size(), 4);
   // Num constants.
   DEBUG(dbgs() << WSMP << "#constants = " << ConstPool.size() << '\n');
   OS.EmitIntValue(ConstPool.size(), 4);
@@ -413,15 +421,18 @@ void StackMaps::emitStackmapHeader(MCStreamer &OS) {
 /// StkSizeRecord[NumFunctions] {
 ///   uint64 : Function Address
 ///   uint64 : Stack Size
+///   uint64 : Record Count
 /// }
 void StackMaps::emitFunctionFrameRecords(MCStreamer &OS) {
   // Function Frame records.
   DEBUG(dbgs() << WSMP << "functions:\n");
-  for (auto const &FR : FnStackSize) {
+  for (auto const &FR : FnInfo) {
     DEBUG(dbgs() << WSMP << "function addr: " << FR.first
-                 << " frame size: " << FR.second);
+                 << " frame size: " << FR.second.first
+                 << " callsite count: " << FR.second.second << '\n');
     OS.EmitSymbolValue(FR.first, 8);
-    OS.EmitIntValue(FR.second, 8);
+    OS.EmitIntValue(FR.second.first, 8);
+    OS.EmitIntValue(FR.second.second, 8);
   }
 }
 
@@ -522,7 +533,7 @@ void StackMaps::serializeToStackMapSection() {
   // Bail out if there's no stack map data.
   assert((!CSInfos.empty() || ConstPool.empty()) &&
          "Expected empty constant pool too!");
-  assert((!CSInfos.empty() || FnStackSize.empty()) &&
+  assert((!CSInfos.empty() || FnInfo.empty()) &&
          "Expected empty function record too!");
   if (CSInfos.empty())
     return;

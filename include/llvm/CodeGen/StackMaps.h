@@ -167,7 +167,7 @@ public:
   void reset() {
     CSInfos.clear();
     ConstPool.clear();
-    FnStackSize.clear();
+    FnInfo.clear();
   }
 
   /// \brief Generate a stackmap record for a stackmap instruction.
@@ -191,7 +191,8 @@ private:
   typedef SmallVector<Location, 8> LocationVec;
   typedef SmallVector<LiveOutReg, 8> LiveOutVec;
   typedef MapVector<uint64_t, uint64_t> ConstantPool;
-  typedef MapVector<const MCSymbol *, uint64_t> FnStackSizeMap;
+  // value is  pair<stack size, call site count>
+  typedef MapVector<const MCSymbol *, std::pair<uint64_t,uint64_t>> FnInfoMap;
 
   struct CallsiteInfo {
     const MCExpr *CSOffsetExpr;
@@ -210,7 +211,7 @@ private:
   AsmPrinter &AP;
   CallsiteInfoList CSInfos;
   ConstantPool ConstPool;
-  FnStackSizeMap FnStackSize;
+  FnInfoMap FnInfo;
 
   MachineInstr::const_mop_iterator
   parseOperand(MachineInstr::const_mop_iterator MOI,
