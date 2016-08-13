@@ -56,14 +56,19 @@ public:
     }
 
     /// Get the function's stack size.
-    uint32_t getStackSize() const {
+    uint64_t getStackSize() const {
       return read<uint64_t>(P + sizeof(uint64_t));
+    }
+    
+    /// Get the number of callsite records.
+    uint32_t getRecordCount() const {
+      return read<uint32_t>(P + sizeof(uint64_t) + sizeof(uint64_t));
     }
 
   private:
     FunctionAccessor(const uint8_t *P) : P(P) {}
 
-    const static int FunctionAccessorSize = 2 * sizeof(uint64_t);
+    const static int FunctionAccessorSize = 2 * sizeof(uint64_t) + sizeof(uint32_t);
 
     FunctionAccessor next() const {
       return FunctionAccessor(P + FunctionAccessorSize);
@@ -420,7 +425,7 @@ private:
   static const unsigned NumRecordsOffset = NumConstantsOffset + sizeof(uint32_t);
   static const unsigned FunctionListOffset = NumRecordsOffset + sizeof(uint32_t);
 
-  static const unsigned FunctionSize = 2 * sizeof(uint64_t);
+  static const unsigned FunctionSize = 2 * sizeof(uint64_t) + sizeof(uint32_t);
   static const unsigned ConstantSize = sizeof(uint64_t);
 
   std::size_t getFunctionOffset(unsigned FunctionIndex) const {
