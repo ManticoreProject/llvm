@@ -9,8 +9,10 @@
 //
 // This pass hoists expressions from branches to a common dominator. It uses
 // GVN (global value numbering) to discover expressions computing the same
-// values. The primary goal is to reduce the code size, and in some
-// cases reduce critical path (by exposing more ILP).
+// values. The primary goals of code-hoisting are:
+// 1. To reduce the code size.
+// 2. In some cases reduce critical path (by exposing more ILP).
+//
 // Hoisting may affect the performance in some cases. To mitigate that, hoisting
 // is disabled in the following cases.
 // 1. Scalars across calls.
@@ -843,8 +845,7 @@ private:
 
         for (auto *Phi : UsePhis) {
           auto In = Phi->incoming_values();
-          if (std::all_of(In.begin(), In.end(),
-                          [&](Use &U){return U == NewMemAcc;})) {
+          if (all_of(In, [&](Use &U) { return U == NewMemAcc; })) {
             Phi->replaceAllUsesWith(NewMemAcc);
             MSSA->removeMemoryAccess(Phi);
           }

@@ -925,17 +925,15 @@ void LoopConstrainer::cloneLoop(LoopConstrainer::ClonedLoop &Result,
     // to be edited to reflect that.  No phi nodes need to be introduced because
     // the loop is in LCSSA.
 
-    for (auto SBBI = succ_begin(OriginalBB), SBBE = succ_end(OriginalBB);
-         SBBI != SBBE; ++SBBI) {
-
-      if (OriginalLoop.contains(*SBBI))
+    for (auto *SBB : successors(OriginalBB)) {
+      if (OriginalLoop.contains(SBB))
         continue; // not an exit block
 
-      for (Instruction &I : **SBBI) {
-        if (!isa<PHINode>(&I))
+      for (Instruction &I : *SBB) {
+        auto *PN = dyn_cast<PHINode>(&I);
+        if (!PN)
           break;
 
-        PHINode *PN = cast<PHINode>(&I);
         Value *OldIncoming = PN->getIncomingValueForBlock(OriginalBB);
         PN->addIncoming(GetClonedValue(OldIncoming), ClonedBB);
       }
@@ -1068,10 +1066,9 @@ LoopConstrainer::RewrittenRangeInfo LoopConstrainer::changeIterationSpaceEnd(
   // each of the PHI nodes in the loop header.  This feeds into the initial
   // value of the same PHI nodes if/when we continue execution.
   for (Instruction &I : *LS.Header) {
-    if (!isa<PHINode>(&I))
+    auto *PN = dyn_cast<PHINode>(&I);
+    if (!PN)
       break;
-
-    PHINode *PN = cast<PHINode>(&I);
 
     PHINode *NewPHI = PHINode::Create(PN->getType(), 2, PN->getName() + ".copy",
                                       BranchToContinuation);
@@ -1105,10 +1102,9 @@ void LoopConstrainer::rewriteIncomingValuesForPHIs(
 
   unsigned PHIIndex = 0;
   for (Instruction &I : *LS.Header) {
-    if (!isa<PHINode>(&I))
+    auto *PN = dyn_cast<PHINode>(&I);
+    if (!PN)
       break;
-
-    PHINode *PN = cast<PHINode>(&I);
 
     for (unsigned i = 0, e = PN->getNumIncomingValues(); i < e; ++i)
       if (PN->getIncomingBlock(i) == ContinuationBlock)
@@ -1126,10 +1122,10 @@ BasicBlock *LoopConstrainer::createPreheader(const LoopStructure &LS,
   BranchInst::Create(LS.Header, Preheader);
 
   for (Instruction &I : *LS.Header) {
-    if (!isa<PHINode>(&I))
+    auto *PN = dyn_cast<PHINode>(&I);
+    if (!PN)
       break;
 
-    PHINode *PN = cast<PHINode>(&I);
     for (unsigned i = 0, e = PN->getNumIncomingValues(); i < e; ++i)
       replacePHIBlock(PN, OldPreheader, Preheader);
   }
