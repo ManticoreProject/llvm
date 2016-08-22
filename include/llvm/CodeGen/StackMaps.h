@@ -193,11 +193,10 @@ private:
   typedef MapVector<uint64_t, uint64_t> ConstantPool;
 
   struct FunctionInfo {
-      uint64_t StackSize;
-      uint64_t RecordCount;
-      FunctionInfo() : StackSize(0), RecordCount(1) {}
-      FunctionInfo(uint64_t StackSize) 
-        : StackSize(StackSize), RecordCount(1) {}
+    uint64_t StackSize;
+    uint64_t RecordCount;
+    FunctionInfo() : StackSize(0), RecordCount(1) {}
+    FunctionInfo(uint64_t StackSize) : StackSize(StackSize), RecordCount(1) {}
   };
 
   struct CallsiteInfo {

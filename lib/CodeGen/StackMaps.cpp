@@ -336,14 +336,14 @@ void StackMaps::recordStackMapOpers(const MachineInstr &MI, uint64_t ID,
   const TargetRegisterInfo *RegInfo = AP.MF->getSubtarget().getRegisterInfo();
   bool HasDynamicFrameSize =
       MFI.hasVarSizedObjects() || RegInfo->needsStackRealignment(*(AP.MF));
-  uint64_t FrameSize = HasDynamicFrameSize ? UINT64_MAX : MFI.getStackSize(); 
-  
+  uint64_t FrameSize = HasDynamicFrameSize ? UINT64_MAX : MFI.getStackSize();
+
   if (FnInfos.count(AP.CurrentFnSym)) {
-      FunctionInfo &current = FnInfos[AP.CurrentFnSym];
-      current.StackSize = FrameSize;
-      current.RecordCount = current.RecordCount + 1;
+    FunctionInfo &current = FnInfos[AP.CurrentFnSym];
+    current.StackSize = FrameSize;
+    current.RecordCount = current.RecordCount + 1;
   } else {
-      FnInfos[AP.CurrentFnSym] = FunctionInfo(FrameSize);
+    FnInfos[AP.CurrentFnSym] = FunctionInfo(FrameSize);
   }
 }
 
