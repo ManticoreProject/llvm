@@ -338,12 +338,12 @@ void StackMaps::recordStackMapOpers(const MachineInstr &MI, uint64_t ID,
       MFI.hasVarSizedObjects() || RegInfo->needsStackRealignment(*(AP.MF));
   uint64_t FrameSize = HasDynamicFrameSize ? UINT64_MAX : MFI.getStackSize(); 
   
-  if (FnInfo.count(AP.CurrentFnSym)) {
-      std::pair<uint64_t,uint64_t> &current = FnInfo[AP.CurrentFnSym];
-      current.first = FrameSize;
-      current.second = current.second + 1;
+  if (FnInfos.count(AP.CurrentFnSym)) {
+      FunctionInfo &current = FnInfos[AP.CurrentFnSym];
+      current.StackSize = FrameSize;
+      current.RecordCount = current.RecordCount + 1;
   } else {
-      FnInfo[AP.CurrentFnSym] = std::make_pair(FrameSize, 1);;
+      FnInfos[AP.CurrentFnSym] = FunctionInfo(FrameSize);
   }
 }
 
@@ -404,8 +404,8 @@ void StackMaps::emitStackmapHeader(MCStreamer &OS) {
   OS.EmitIntValue(0, 2);               // Reserved.
 
   // Num functions.
-  DEBUG(dbgs() << WSMP << "#functions = " << FnInfo.size() << '\n');
-  OS.EmitIntValue(FnInfo.size(), 4);
+  DEBUG(dbgs() << WSMP << "#functions = " << FnInfos.size() << '\n');
+  OS.EmitIntValue(FnInfos.size(), 4);
   // Num constants.
   DEBUG(dbgs() << WSMP << "#constants = " << ConstPool.size() << '\n');
   OS.EmitIntValue(ConstPool.size(), 4);
@@ -424,13 +424,13 @@ void StackMaps::emitStackmapHeader(MCStreamer &OS) {
 void StackMaps::emitFunctionFrameRecords(MCStreamer &OS) {
   // Function Frame records.
   DEBUG(dbgs() << WSMP << "functions:\n");
-  for (auto const &FR : FnInfo) {
+  for (auto const &FR : FnInfos) {
     DEBUG(dbgs() << WSMP << "function addr: " << FR.first
-                 << " frame size: " << FR.second.first
-                 << " callsite count: " << FR.second.second << '\n');
+                 << " frame size: " << FR.second.StackSize
+                 << " callsite count: " << FR.second.RecordCount << '\n');
     OS.EmitSymbolValue(FR.first, 8);
-    OS.EmitIntValue(FR.second.first, 8);
-    OS.EmitIntValue(FR.second.second, 8);
+    OS.EmitIntValue(FR.second.StackSize, 8);
+    OS.EmitIntValue(FR.second.RecordCount, 8);
   }
 }
 
@@ -531,7 +531,7 @@ void StackMaps::serializeToStackMapSection() {
   // Bail out if there's no stack map data.
   assert((!CSInfos.empty() || ConstPool.empty()) &&
          "Expected empty constant pool too!");
-  assert((!CSInfos.empty() || FnInfo.empty()) &&
+  assert((!CSInfos.empty() || FnInfos.empty()) &&
          "Expected empty function record too!");
   if (CSInfos.empty())
     return;
