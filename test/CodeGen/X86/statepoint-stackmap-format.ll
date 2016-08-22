@@ -92,13 +92,13 @@ declare i32 addrspace(1)* @llvm.experimental.gc.relocate.p1i32(token, i32, i32) 
 ; Functions and stack size
 ; CHECK-NEXT:   .quad test
 ; CHECK-NEXT:   .quad 40
-; CHECK-NEXT:   .long 1
+; CHECK-NEXT:   .quad 1
 ; CHECK-NEXT:   .quad test_derived_arg
 ; CHECK-NEXT:   .quad 40
-; CHECK-NEXT:   .long 1
+; CHECK-NEXT:   .quad 1
 ; CHECK-NEXT:   .quad test_id
 ; CHECK-NEXT:   .quad 8
-; CHECK-NEXT:   .long 1
+; CHECK-NEXT:   .quad 1
 
 ;
 ; test

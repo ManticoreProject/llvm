@@ -2,7 +2,7 @@ RUN: llvm-readobj -stackmap %p/Inputs/stackmap-test.macho-x86-64 | FileCheck %s
 
 ; Note: the macho object file in this test was generated in the following way:
 ; llc -mtriple=x86_64-apple-darwin %p/test/CodeGen/X86/stackmap.ll -o stackmap.s
-; clang -c stackmap.s -o %p/Inputs/stackmap-test.macho-x86-64
+; clang -c stackmap.s -o %p/test/Object/Inputs/stackmap-test.macho-x86-64
 
 CHECK: LLVM StackMap Version: 1
 CHECK-NEXT: Num Functions: 16

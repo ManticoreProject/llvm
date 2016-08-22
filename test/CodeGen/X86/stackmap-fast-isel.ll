@@ -17,16 +17,16 @@
 ; Functions and stack size
 ; CHECK-NEXT:   .quad _constantargs
 ; CHECK-NEXT:   .quad 8
-; CHECK-NEXT:   .long 1
+; CHECK-NEXT:   .quad 1
 ; CHECK-NEXT:   .quad _liveConstant
 ; CHECK-NEXT:   .quad 8
-; CHECK-NEXT:   .long 1
+; CHECK-NEXT:   .quad 1
 ; CHECK-NEXT:   .quad _directFrameIdx
 ; CHECK-NEXT:   .quad 40
-; CHECK-NEXT:   .long 1
+; CHECK-NEXT:   .quad 1
 ; CHECK-NEXT:   .quad _longid
 ; CHECK-NEXT:   .quad 8
-; CHECK-NEXT:   .long 4
+; CHECK-NEXT:   .quad 4
 
 ; Large Constants
 ; CHECK-NEXT:   .quad   2147483648
