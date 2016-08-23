@@ -338,13 +338,11 @@ void StackMaps::recordStackMapOpers(const MachineInstr &MI, uint64_t ID,
       MFI.hasVarSizedObjects() || RegInfo->needsStackRealignment(*(AP.MF));
   uint64_t FrameSize = HasDynamicFrameSize ? UINT64_MAX : MFI.getStackSize();
 
-  if (FnInfos.count(AP.CurrentFnSym)) {
-    FunctionInfo &current = FnInfos[AP.CurrentFnSym];
-    current.StackSize = FrameSize;
-    current.RecordCount = current.RecordCount + 1;
-  } else {
-    FnInfos[AP.CurrentFnSym] = FunctionInfo(FrameSize);
-  }
+  auto CurrentIt = FnInfos.find(AP.CurrentFnSym);
+  if (CurrentIt != FnInfos.end())
+    CurrentIt->second.RecordCount++;
+  else
+    FnInfos.insert(std::make_pair(AP.CurrentFnSym, FunctionInfo(FrameSize)));
 }
 
 void StackMaps::recordStackMap(const MachineInstr &MI) {
