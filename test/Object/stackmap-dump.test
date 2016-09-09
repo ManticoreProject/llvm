@@ -4,7 +4,7 @@ RUN: llvm-readobj -stackmap %p/Inputs/stackmap-test.macho-x86-64 | FileCheck %s
 ; llc -mtriple=x86_64-apple-darwin %p/test/CodeGen/X86/stackmap.ll -o stackmap.s
 ; clang -c stackmap.s -o %p/test/Object/Inputs/stackmap-test.macho-x86-64
 
-CHECK: LLVM StackMap Version: 1
+CHECK: LLVM StackMap Version: 2
 CHECK-NEXT: Num Functions: 16
 CHECK-NEXT:   Function address: 0, stack size: 8, callsite record count: 1
 CHECK-NEXT:   Function address: 0, stack size: 24, callsite record count: 1

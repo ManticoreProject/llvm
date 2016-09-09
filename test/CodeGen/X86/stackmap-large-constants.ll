@@ -3,7 +3,7 @@
 ; CHECK-LABEL:	.section	__LLVM_STACKMAPS,__llvm_stackmaps
 ; CHECK-NEXT: __LLVM_StackMaps:
 ; version
-; CHECK-NEXT: 	.byte	1
+; CHECK-NEXT: 	.byte	2
 ; reserved
 ; CHECK-NEXT: 	.byte	0
 ; reserved

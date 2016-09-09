@@ -44,7 +44,7 @@ target triple = "powerpc64-unknown-linux-gnu"
 ; CHECK-LABEL:  .section  .llvm_stackmaps
 ; CHECK-NEXT:  __LLVM_StackMaps:
 ; Header
-; CHECK-NEXT:   .byte 1
+; CHECK-NEXT:   .byte 2
 ; CHECK-NEXT:   .byte 0
 ; CHECK-NEXT:   .short 0
 ; Num Functions
