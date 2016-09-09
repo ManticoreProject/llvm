@@ -30,8 +30,8 @@ using namespace llvm;
 #define DEBUG_TYPE "stackmaps"
 
 static cl::opt<int> StackMapVersion(
-    "stackmap-version", cl::init(1),
-    cl::desc("Specify the stackmap encoding version (default = 1)"));
+    "stackmap-version", cl::init(2),
+    cl::desc("Specify the stackmap encoding version (default = 2)"));
 
 const char *StackMaps::WSMP = "Stack Maps: ";
 
@@ -70,7 +70,7 @@ unsigned PatchPointOpers::getNextScratchIdx(unsigned StartIdx) const {
 }
 
 StackMaps::StackMaps(AsmPrinter &AP) : AP(AP) {
-  if (StackMapVersion != 1)
+  if (StackMapVersion != 2)
     llvm_unreachable("Unsupported stackmap version!");
 }
 
@@ -388,7 +388,7 @@ void StackMaps::recordStatepoint(const MachineInstr &MI) {
 /// Emit the stackmap header.
 ///
 /// Header {
-///   uint8  : Stack Map Version (currently 1)
+///   uint8  : Stack Map Version (currently 2)
 ///   uint8  : Reserved (expected to be 0)
 ///   uint16 : Reserved (expected to be 0)
 /// }

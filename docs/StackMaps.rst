@@ -319,7 +319,7 @@ format of this section follows:
 .. code-block:: none
 
   Header {
-    uint8  : Stack Map Version (current version is 1)
+    uint8  : Stack Map Version (current version is 2)
     uint8  : Reserved (expected to be 0)
     uint16 : Reserved (expected to be 0)
   }

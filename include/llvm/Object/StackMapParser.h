@@ -17,7 +17,7 @@
 namespace llvm {
 
 template <support::endianness Endianness>
-class StackMapV1Parser {
+class StackMapV2Parser {
 public:
 
   template <typename AccessorT>
@@ -47,7 +47,7 @@ public:
 
   /// Accessor for function records.
   class FunctionAccessor {
-    friend class StackMapV1Parser;
+    friend class StackMapV2Parser;
   public:
 
     /// Get the function address.
@@ -79,7 +79,7 @@ public:
 
   /// Accessor for constants.
   class ConstantAccessor {
-    friend class StackMapV1Parser;
+    friend class StackMapV2Parser;
   public:
 
     /// Return the value of this constant.
@@ -108,7 +108,7 @@ public:
 
   /// Accessor for location records.
   class LocationAccessor {
-    friend class StackMapV1Parser;
+    friend class StackMapV2Parser;
     friend class RecordAccessor;
   public:
 
@@ -161,7 +161,7 @@ public:
 
   /// Accessor for stackmap live-out fields.
   class LiveOutAccessor {
-    friend class StackMapV1Parser;
+    friend class StackMapV2Parser;
     friend class RecordAccessor;
   public:
 
@@ -193,7 +193,7 @@ public:
 
   /// Accessor for stackmap records.
   class RecordAccessor {
-    friend class StackMapV1Parser;
+    friend class StackMapV2Parser;
   public:
 
     typedef AccessorIterator<LocationAccessor> location_iterator;
@@ -297,14 +297,14 @@ public:
     const uint8_t *P;
   };
 
-  /// Construct a parser for a version-1 stackmap. StackMap data will be read
+  /// Construct a parser for a version-2 stackmap. StackMap data will be read
   /// from the given array.
-  StackMapV1Parser(ArrayRef<uint8_t> StackMapSection)
+  StackMapV2Parser(ArrayRef<uint8_t> StackMapSection)
       : StackMapSection(StackMapSection) {
     ConstantsListOffset = FunctionListOffset + getNumFunctions() * FunctionSize;
 
-    assert(StackMapSection[0] == 1 &&
-           "StackMapV1Parser can only parse version 1 stackmaps");
+    assert(StackMapSection[0] == 2 &&
+           "StackMapV2Parser can only parse version 2 stackmaps");
 
     unsigned CurrentRecordOffset =
       ConstantsListOffset + getNumConstants() * ConstantSize;
@@ -320,8 +320,8 @@ public:
   typedef AccessorIterator<ConstantAccessor> constant_iterator;
   typedef AccessorIterator<RecordAccessor> record_iterator;
 
-  /// Get the version number of this stackmap. (Always returns 1).
-  unsigned getVersion() const { return 1; }
+  /// Get the version number of this stackmap. (Always returns 2).
+  unsigned getVersion() const { return 2; }
 
   /// Get the number of functions in the stack map.
   uint32_t getNumFunctions() const {
