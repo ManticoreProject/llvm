@@ -3101,7 +3101,7 @@ static unsigned computeBytesPoppedByCalleeForSRet(const X86Subtarget *Subtarget,
   if (Subtarget->getTargetTriple().isOSMSVCRT())
     return 0;
   if (CC == CallingConv::Fast || CC == CallingConv::GHC ||
-      CC == CallingConv::HiPE)
+      CC == CallingConv::HiPE || CC == CallingConv::JWA)
     return 0;
 
   if (CS)

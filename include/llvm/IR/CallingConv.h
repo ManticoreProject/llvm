@@ -196,6 +196,14 @@ namespace CallingConv {
     /// Register calling convention used for parameters transfer optimization
     X86_RegCall = 92,
 
+    /// JWA - "Jump With Arguments," a calling convention which requires the
+    /// use of registers for parameter passing. It is designed for language
+    /// implementations which do not use a stack, however, it will not warn
+    /// if there are not enough registers for a given function. The lack of
+    /// warning is needed in order to properly utilize musttail calls as 
+    /// jumps because they are picky about parameters.
+    JWA = 93,
+
     /// The highest possible calling convention ID. Must be some 2^k - 1.
     MaxID = 1023
   };
