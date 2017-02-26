@@ -2505,6 +2505,12 @@ void X86FrameLowering::adjustForHiPEPrologue(
 #endif
 }
 
+void X86FrameLowering::adjustForMantiContigPrologue(
+    MachineFunction &MF, MachineBasicBlock &PrologueMBB) const {
+    MF.dump();
+    return;
+}
+
 bool X86FrameLowering::adjustStackWithPops(MachineBasicBlock &MBB,
                                            MachineBasicBlock::iterator MBBI,
                                            const DebugLoc &DL,

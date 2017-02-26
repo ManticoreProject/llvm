@@ -179,6 +179,10 @@ public:
   virtual void adjustForHiPEPrologue(MachineFunction &MF,
                                      MachineBasicBlock &PrologueMBB) const {}
 
+  /// Adjust the prologue to add additional code for Manticore contiguous stacks.
+  virtual void adjustForMantiContigPrologue(MachineFunction &MF,
+                                     MachineBasicBlock &PrologueMBB) const {}
+
   /// spillCalleeSavedRegisters - Issues instruction(s) to spill all callee
   /// saved registers and returns true if it isn't possible / profitable to do
   /// so by issuing a series of store instructions via
