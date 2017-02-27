@@ -976,9 +976,18 @@ void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
 
   // Emit prologue/epilogue for Manticore's contiguous stacks.
   if (Fn.getFunction()->getAttributes().hasFnAttribute("manti-contig")) {
-    for (MachineBasicBlock *SaveBlock : SaveBlocks)
+    int numSaveBlocks = 0;
+    for (MachineBasicBlock *SaveBlock : SaveBlocks) {
       TFI.emitMantiContigPrologue(Fn, *SaveBlock);
-      // TODO emit an epilogue
+      numSaveBlocks++;
+    }
+
+    // if there's more than 1, the size of the fun's stack frame increases too much
+    assert(numSaveBlocks == 1 && "unexpected number of save blocks");
+
+    for (MachineBasicBlock *RestoreBlock : RestoreBlocks)
+      TFI.emitMantiContigEpilog(Fn, *RestoreBlock);
+
     return;
   }
 

@@ -183,6 +183,10 @@ public:
   virtual void emitMantiContigPrologue(MachineFunction &MF,
                                      MachineBasicBlock &PrologueMBB) const {}
 
+  /// Emit an epilog for Manticore contiguous stacks.
+  virtual void emitMantiContigEpilog(MachineFunction &MF,
+                                     MachineBasicBlock &PrologueMBB) const {}
+
   /// spillCalleeSavedRegisters - Issues instruction(s) to spill all callee
   /// saved registers and returns true if it isn't possible / profitable to do
   /// so by issuing a series of store instructions via

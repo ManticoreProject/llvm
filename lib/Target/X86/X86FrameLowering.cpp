@@ -2559,6 +2559,51 @@ void X86FrameLowering::emitMantiContigPrologue(
 #endif
 }
 
+void X86FrameLowering::emitMantiContigEpilog(
+    MachineFunction &MF, MachineBasicBlock &MBB) const {
+
+  // // get info
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
+  MachineBasicBlock::iterator MBBI = MBB.getFirstTerminator();
+  uint64_t StackAlign = getStackAlignment();
+  uint64_t StackSize = MFI.getStackSize();    // Number of bytes to allocate.
+  uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
+  uint64_t WatermarkSize = 8;
+
+  // get the aligned stack size
+  uint64_t SpillBytes = alignTo(StackSize, StackAlign);
+
+  if (CalleeSaveSize == 0) {
+    
+    // we can just move the stack pointer to pop the spill area & watermark
+    emitSPUpdate(MBB, MBBI, SpillBytes, /*InEpilogue=*/true);
+
+  } else {
+  
+    // pop the watermark
+    emitSPUpdate(MBB, MBBI, WatermarkSize, /*InEpilogue=*/true);
+    --MBBI;
+
+    // move past the callee-restores
+    while (MBBI != MBB.begin() &&
+           MBBI->getFlag(MachineInstr::FrameSetup) &&
+           (MBBI->getOpcode() == X86::POP32r ||
+            MBBI->getOpcode() == X86::POP64r)) {
+      --MBBI;
+    }
+
+    SpillBytes -= CalleeSaveSize + WatermarkSize;
+
+    // pop the spill area
+    emitSPUpdate(MBB, MBBI, SpillBytes, /*InEpilogue=*/true);
+  }
+
+#ifdef EXPENSIVE_CHECKS
+  MF.verify();
+#endif
+}
+
 bool X86FrameLowering::adjustStackWithPops(MachineBasicBlock &MBB,
                                            MachineBasicBlock::iterator MBBI,
                                            const DebugLoc &DL,
