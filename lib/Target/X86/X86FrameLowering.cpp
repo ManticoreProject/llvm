@@ -2520,38 +2520,51 @@ void X86FrameLowering::emitMantiContigPrologue(
   DebugLoc DL;    // debug loc is unknown
   MachineFrameInfo &MFI = MF.getFrameInfo();
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
+  MachineBasicBlock::iterator MBBI = MBB.begin();
   uint64_t StackAlign = getStackAlignment();
   uint64_t StackSize = MFI.getStackSize();    // Number of bytes to allocate.
   uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
   uint64_t WatermarkSize = 8;
   uint64_t InitialOffset = 8;  // from return address we're passed.
+  uint64_t SpillBytes;
+  
 
-  // place the watermark at the very top of the frame
-  MachineBasicBlock::iterator MBBI = MBB.begin();
-  BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64i32))
-      .addImm(0)
-      .setMIFlag(MachineInstr::FrameSetup);
+  if (!(MFI.hasCalls())) {
+    // it's a leaf, so no chance of GC (thus no watermark), 
+    // nor do we need a particular stack alignment.
 
-  // update frame size
-  StackSize += WatermarkSize;
+    SpillBytes = StackSize - CalleeSaveSize;
 
-  // move MBII past the watermark and callee-saves
-  while (MBBI != MBB.end() &&
-         MBBI->getFlag(MachineInstr::FrameSetup) &&
-         (MBBI->getOpcode() == X86::PUSH32r ||
-          MBBI->getOpcode() == X86::PUSH64r)) {
-    ++MBBI;
+  } else {
+    // Otherwise, GC may occur, so we need a watermark and alignment.
+
+    // place the watermark at the very top of the frame
+    BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64i32))
+        .addImm(0)
+        .setMIFlag(MachineInstr::FrameSetup);
+
+    // update frame size
+    StackSize += WatermarkSize;
+
+    // compute the aligned stack size
+    StackSize += (StackSize + InitialOffset) % StackAlign;
+    MFI.setStackSize(StackSize);  // update info for correct stackmap emission
+
+    // subtract the watermark and callee-saves
+    SpillBytes = StackSize - (CalleeSaveSize + WatermarkSize);
   }
 
-  // compute the aligned stack size
-  StackSize += (StackSize + InitialOffset) % StackAlign;
-  MFI.setStackSize(StackSize);  // update info for correct stackmap emission
+  // emit an adjustment, if needed, in either case.
+  if(SpillBytes) {
+    
+    // move MBII past the callee-saves, if any
+    while (MBBI != MBB.end() &&
+           MBBI->getFlag(MachineInstr::FrameSetup) &&
+           (MBBI->getOpcode() == X86::PUSH32r ||
+            MBBI->getOpcode() == X86::PUSH64r)) {
+      ++MBBI;
+    }
 
-  // subtract the watermark and callee-saves
-  uint64_t SpillBytes = StackSize - (CalleeSaveSize + WatermarkSize);
-
-  // emit an adjustment, if needed.
-  if (SpillBytes) {
     emitSPUpdate(MBB, MBBI, -(int64_t)SpillBytes, /*InEpilogue=*/false);
   }
 
@@ -2569,18 +2582,22 @@ void X86FrameLowering::emitMantiContigEpilog(
   MachineBasicBlock::iterator MBBI = MBB.getFirstTerminator();
   uint64_t StackSize = MFI.getStackSize();    // Number of bytes to allocate.
   uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
-  uint64_t WatermarkSize = 8;
+  uint64_t WatermarkSize = 0;
 
   if (CalleeSaveSize == 0) {
-    
-    // we can just move the stack pointer to pop everything.
-    emitSPUpdate(MBB, MBBI, StackSize, /*InEpilogue=*/true);
+    if(StackSize) {
+      // we can just move the stack pointer to pop everything.
+      emitSPUpdate(MBB, MBBI, StackSize, /*InEpilogue=*/true);
+    }
 
   } else {
   
-    // pop the watermark
-    emitSPUpdate(MBB, MBBI, WatermarkSize, /*InEpilogue=*/true);
-    --MBBI;
+    if (MFI.hasCalls()) {
+      WatermarkSize = 8;
+      // pop the watermark
+      emitSPUpdate(MBB, MBBI, WatermarkSize, /*InEpilogue=*/true);
+      --MBBI;
+    }
 
     // move past the callee-restores
     while (MBBI != MBB.begin() &&
