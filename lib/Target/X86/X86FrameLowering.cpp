@@ -2524,6 +2524,7 @@ void X86FrameLowering::emitMantiContigPrologue(
   uint64_t StackSize = MFI.getStackSize();    // Number of bytes to allocate.
   uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
   uint64_t WatermarkSize = 8;
+  uint64_t InitialOffset = 8;  // from return address we're passed.
 
   // place the watermark at the very top of the frame
   MachineBasicBlock::iterator MBBI = MBB.begin();
@@ -2533,7 +2534,6 @@ void X86FrameLowering::emitMantiContigPrologue(
 
   // update frame size
   StackSize += WatermarkSize;
-  MFI.setStackSize(StackSize);
 
   // move MBII past the watermark and callee-saves
   while (MBBI != MBB.end() &&
@@ -2543,11 +2543,12 @@ void X86FrameLowering::emitMantiContigPrologue(
     ++MBBI;
   }
 
-  // get the aligned stack size
-  uint64_t SpillBytes = alignTo(StackSize, StackAlign);
+  // compute the aligned stack size
+  StackSize += (StackSize + InitialOffset) % StackAlign;
+  MFI.setStackSize(StackSize);  // update info for correct stackmap emission
 
   // subtract the watermark and callee-saves
-  SpillBytes -= CalleeSaveSize + WatermarkSize;
+  uint64_t SpillBytes = StackSize - (CalleeSaveSize + WatermarkSize);
 
   // emit an adjustment, if needed.
   if (SpillBytes) {
@@ -2562,22 +2563,18 @@ void X86FrameLowering::emitMantiContigPrologue(
 void X86FrameLowering::emitMantiContigEpilog(
     MachineFunction &MF, MachineBasicBlock &MBB) const {
 
-  // // get info
+  // get info
   MachineFrameInfo &MFI = MF.getFrameInfo();
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
   MachineBasicBlock::iterator MBBI = MBB.getFirstTerminator();
-  uint64_t StackAlign = getStackAlignment();
   uint64_t StackSize = MFI.getStackSize();    // Number of bytes to allocate.
   uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
   uint64_t WatermarkSize = 8;
 
-  // get the aligned stack size
-  uint64_t SpillBytes = alignTo(StackSize, StackAlign);
-
   if (CalleeSaveSize == 0) {
     
-    // we can just move the stack pointer to pop the spill area & watermark
-    emitSPUpdate(MBB, MBBI, SpillBytes, /*InEpilogue=*/true);
+    // we can just move the stack pointer to pop everything.
+    emitSPUpdate(MBB, MBBI, StackSize, /*InEpilogue=*/true);
 
   } else {
   
@@ -2593,7 +2590,7 @@ void X86FrameLowering::emitMantiContigEpilog(
       --MBBI;
     }
 
-    SpillBytes -= CalleeSaveSize + WatermarkSize;
+    uint64_t SpillBytes = StackSize - (CalleeSaveSize + WatermarkSize);
 
     // pop the spill area
     emitSPUpdate(MBB, MBBI, SpillBytes, /*InEpilogue=*/true);
