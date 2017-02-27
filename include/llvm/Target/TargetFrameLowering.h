@@ -179,8 +179,8 @@ public:
   virtual void adjustForHiPEPrologue(MachineFunction &MF,
                                      MachineBasicBlock &PrologueMBB) const {}
 
-  /// Adjust the prologue to add additional code for Manticore contiguous stacks.
-  virtual void adjustForMantiContigPrologue(MachineFunction &MF,
+  /// Emit a prologue for Manticore contiguous stacks.
+  virtual void emitMantiContigPrologue(MachineFunction &MF,
                                      MachineBasicBlock &PrologueMBB) const {}
 
   /// spillCalleeSavedRegisters - Issues instruction(s) to spill all callee

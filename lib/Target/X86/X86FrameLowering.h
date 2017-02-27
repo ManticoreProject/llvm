@@ -73,7 +73,7 @@ public:
   void adjustForHiPEPrologue(MachineFunction &MF,
                              MachineBasicBlock &PrologueMBB) const override;
 
-  void adjustForMantiContigPrologue(MachineFunction &MF,
+  void emitMantiContigPrologue(MachineFunction &MF,
                              MachineBasicBlock &PrologueMBB) const override;
 
   void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,

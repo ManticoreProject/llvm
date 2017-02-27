@@ -974,6 +974,14 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
 void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
   const TargetFrameLowering &TFI = *Fn.getSubtarget().getFrameLowering();
 
+  // Emit prologue/epilogue for Manticore's contiguous stacks.
+  if (Fn.getFunction()->getAttributes().hasFnAttribute("manti-contig")) {
+    for (MachineBasicBlock *SaveBlock : SaveBlocks)
+      TFI.emitMantiContigPrologue(Fn, *SaveBlock);
+      // TODO emit an epilogue
+    return;
+  }
+
   // Add prologue to the function...
   for (MachineBasicBlock *SaveBlock : SaveBlocks)
     TFI.emitPrologue(Fn, *SaveBlock);
@@ -1003,11 +1011,7 @@ void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
     for (MachineBasicBlock *SaveBlock : SaveBlocks)
       TFI.adjustForHiPEPrologue(Fn, *SaveBlock);
 
-  // Emit additional code for Manticore's contiguous stacks.
-  if (Fn.getFunction()->getAttributes().hasFnAttribute("manti-contig")) {
-    for (MachineBasicBlock *SaveBlock : SaveBlocks)
-      TFI.adjustForMantiContigPrologue(Fn, *SaveBlock);
-  }
+  
 }
 
 /// replaceFrameIndices - Replace all MO_FrameIndex operands with physical

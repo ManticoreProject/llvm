@@ -2505,10 +2505,58 @@ void X86FrameLowering::adjustForHiPEPrologue(
 #endif
 }
 
-void X86FrameLowering::adjustForMantiContigPrologue(
-    MachineFunction &MF, MachineBasicBlock &PrologueMBB) const {
-    MF.dump();
-    return;
+void X86FrameLowering::emitMantiContigPrologue(
+    MachineFunction &MF, MachineBasicBlock &MBB) const {
+
+  // our goal here is to add a watermark at the top of every frame upon entry
+  // to support generational stack collection.
+
+  // pre-conditions
+  assert(&(*MF.begin()) == &MBB && "Shrink-wrapping not supported yet");
+  assert(hasFP(MF) == false && "Frame-pointer elimination is required.");
+  assert(Is64Bit && "Manti-contig is only supported under 64 bit.");
+
+  // get info
+  DebugLoc DL;    // debug loc is unknown
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
+  uint64_t StackAlign = getStackAlignment();
+  uint64_t StackSize = MFI.getStackSize();    // Number of bytes to allocate.
+  uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
+  uint64_t WatermarkSize = 8;
+
+  // place the watermark at the very top of the frame
+  MachineBasicBlock::iterator MBBI = MBB.begin();
+  BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64i32))
+      .addImm(0)
+      .setMIFlag(MachineInstr::FrameSetup);
+
+  // update frame size
+  StackSize += WatermarkSize;
+  MFI.setStackSize(StackSize);
+
+  // move MBII past the watermark and callee-saves
+  while (MBBI != MBB.end() &&
+         MBBI->getFlag(MachineInstr::FrameSetup) &&
+         (MBBI->getOpcode() == X86::PUSH32r ||
+          MBBI->getOpcode() == X86::PUSH64r)) {
+    ++MBBI;
+  }
+
+  // get the aligned stack size
+  uint64_t SpillBytes = alignTo(StackSize, StackAlign);
+
+  // subtract the watermark and callee-saves
+  SpillBytes -= CalleeSaveSize + WatermarkSize;
+
+  // emit an adjustment, if needed.
+  if (SpillBytes) {
+    emitSPUpdate(MBB, MBBI, -(int64_t)SpillBytes, /*InEpilogue=*/false);
+  }
+
+#ifdef EXPENSIVE_CHECKS
+  MF.verify();
+#endif
 }
 
 bool X86FrameLowering::adjustStackWithPops(MachineBasicBlock &MBB,
