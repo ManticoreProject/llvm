@@ -2521,51 +2521,62 @@ void X86FrameLowering::emitMantiContigPrologue(
   MachineFrameInfo &MFI = MF.getFrameInfo();
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
   MachineBasicBlock::iterator MBBI = MBB.begin();
+
   uint64_t StackAlign = getStackAlignment();
   uint64_t StackSize = MFI.getStackSize();    // Number of bytes to allocate.
   uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
-  uint64_t WatermarkSize = 8;
-  uint64_t InitialOffset = 8;  // from return address we're passed.
-  uint64_t SpillBytes;
-  
+  uint64_t SlotSize = 8;
+  uint64_t WatermarkSize = SlotSize;
+  uint64_t InitialOffset = SlotSize;  // from return address we're passed.
+  uint64_t StackBump;
+
+  assert(StackAlign == 16 && "alignment doesn't match ABI expectations");
+
+  bool NeedsWatermark = false;
 
   if (!(MFI.hasCalls())) {
     // it's a leaf, so no chance of GC (thus no watermark), 
     // nor do we need a particular stack alignment.
 
-    SpillBytes = StackSize - CalleeSaveSize;
+    StackBump = (StackSize - CalleeSaveSize) + SlotSize;  
 
   } else {
-    // Otherwise, GC may occur, so we need a watermark and alignment.
 
-    // place the watermark at the very top of the frame
-    BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64i32))
-        .addImm(0)
-        .setMIFlag(MachineInstr::FrameSetup);
+    NeedsWatermark = true;
 
-    // update frame size
-    StackSize += WatermarkSize;
+    StackSize += WatermarkSize;   // include watermark size in the stack bump calc + align below.
+    MFI.setStackSize(StackSize);  // this will magically shift the spill offsets up by the watermark size.
+    
+    // compute the minimum bump for all but CSRs
+    StackBump = (StackSize - CalleeSaveSize) + SlotSize;  
 
-    // compute the aligned stack size
-    StackSize += (StackSize + InitialOffset) % StackAlign;
-    MFI.setStackSize(StackSize);  // update info for correct stackmap emission
+    // add alignment to the bump, including CSRs and the initial SP alignment in the calculation.
+    StackBump += (StackBump + CalleeSaveSize + InitialOffset) % StackAlign;
 
-    // subtract the watermark and callee-saves
-    SpillBytes = StackSize - (CalleeSaveSize + WatermarkSize);
+    // now, take away the watermark size after align, 
+    // because we're going to use push instead of mov below
+    StackBump -= WatermarkSize;
   }
 
-  // emit an adjustment, if needed, in either case.
-  if(SpillBytes) {
-    
-    // move MBII past the callee-saves, if any
-    while (MBBI != MBB.end() &&
-           MBBI->getFlag(MachineInstr::FrameSetup) &&
-           (MBBI->getOpcode() == X86::PUSH32r ||
-            MBBI->getOpcode() == X86::PUSH64r)) {
-      ++MBBI;
-    }
+  // move MBII past the callee-saves, if any
+  while (MBBI != MBB.end() &&
+         MBBI->getFlag(MachineInstr::FrameSetup) &&
+         (MBBI->getOpcode() == X86::PUSH32r ||
+          MBBI->getOpcode() == X86::PUSH64r)) {
+    ++MBBI;
+  }
 
-    emitSPUpdate(MBB, MBBI, -(int64_t)SpillBytes, /*InEpilogue=*/false);
+  if (StackBump) {
+    // emit the bump
+    emitSPUpdate(MBB, MBBI, -(int64_t)StackBump, /*InEpilogue=*/false);
+  }
+
+  if (NeedsWatermark) {
+    // push the watermark to the end of the frame. 
+    // This will leave SP correctly aligned whether we emitted a bump or not.
+    BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64i32))
+          .addImm(0)
+          .setMIFlag(MachineInstr::FrameSetup);  
   }
 
 #ifdef EXPENSIVE_CHECKS
@@ -2580,38 +2591,33 @@ void X86FrameLowering::emitMantiContigEpilog(
   MachineFrameInfo &MFI = MF.getFrameInfo();
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
   MachineBasicBlock::iterator MBBI = MBB.getFirstTerminator();
-  uint64_t StackSize = MFI.getStackSize();    // Number of bytes to allocate.
+
+  uint64_t StackAlign = getStackAlignment();
+  uint64_t StackSize = MFI.getStackSize();
   uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
-  uint64_t WatermarkSize = 0;
+  uint64_t SlotSize = 8;
+  uint64_t InitialOffset = SlotSize;  // from return address we're passed.
+  uint64_t StackBump;
 
-  if (CalleeSaveSize == 0) {
-    if(StackSize) {
-      // we can just move the stack pointer to pop everything.
-      emitSPUpdate(MBB, MBBI, StackSize, /*InEpilogue=*/true);
-    }
 
-  } else {
-  
-    if (MFI.hasCalls()) {
-      WatermarkSize = 8;
-      // pop the watermark
-      emitSPUpdate(MBB, MBBI, WatermarkSize, /*InEpilogue=*/true);
-      --MBBI;
-    }
+  // compute the stack bump as done in the prologue.
+  // StackSize includes the watermark, if any.
+  StackBump = (StackSize - CalleeSaveSize) + SlotSize;  
+  StackBump += (StackBump + CalleeSaveSize + InitialOffset) % StackAlign;
 
-    // move past the callee-restores
+  if (StackBump) {
+    // move past the callee-restores, if any
     while (MBBI != MBB.begin() &&
-           MBBI->getFlag(MachineInstr::FrameSetup) &&
+           MBBI->getFlag(MachineInstr::FrameDestroy) &&
            (MBBI->getOpcode() == X86::POP32r ||
             MBBI->getOpcode() == X86::POP64r)) {
       --MBBI;
     }
 
-    uint64_t SpillBytes = StackSize - (CalleeSaveSize + WatermarkSize);
-
-    // pop the spill area
-    emitSPUpdate(MBB, MBBI, SpillBytes, /*InEpilogue=*/true);
+    // unbump
+    emitSPUpdate(MBB, MBBI, StackBump, /*InEpilogue=*/true);
   }
+
 
 #ifdef EXPENSIVE_CHECKS
   MF.verify();
