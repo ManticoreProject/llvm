@@ -2539,22 +2539,23 @@ void X86FrameLowering::emitMantiContigPrologue(
     // nor do we need a particular stack alignment.
 
     StackBump = (StackSize - CalleeSaveSize) + SlotSize;  
+    StackSize = StackBump + CalleeSaveSize;
 
   } else {
 
     NeedsWatermark = true;
-
-    StackSize += WatermarkSize;   // include watermark size in the stack bump calc + align below.
-    MFI.setStackSize(StackSize);  // this will magically shift the spill offsets up by the watermark size.
     
     // compute the minimum bump for all but CSRs
-    StackBump = (StackSize - CalleeSaveSize) + SlotSize;  
+    StackBump = (StackSize - CalleeSaveSize) + SlotSize + WatermarkSize;  
 
     // add alignment to the bump, including CSRs and the initial SP alignment in the calculation.
+    // this is the final bump point.
     StackBump += (StackBump + CalleeSaveSize + InitialOffset) % StackAlign;
 
+    StackSize = StackBump + CalleeSaveSize;
+
     // now, take away the watermark size after align, 
-    // because we're going to use push instead of mov below
+    // because we're going to use push instead of mov below.
     StackBump -= WatermarkSize;
   }
 
@@ -2579,6 +2580,29 @@ void X86FrameLowering::emitMantiContigPrologue(
           .setMIFlag(MachineInstr::FrameSetup);  
   }
 
+
+  // set final stack size for correct stackmap emission
+  MFI.setStackSize(StackSize);
+
+  // after setting the stack size, the offsets for all stack objects
+  // shifts up to the top for some reason, so we need to pull them back
+  // down to avoid overwriting the return address or CSR
+
+  // Loop to process fixed stack objects:
+  // for (int I = MFI.getObjectIndexBegin(); I < 0; ++I) {
+
+  // Process ordinary stack objects.
+  for (int I = 0, E = MFI.getObjectIndexEnd(); I < E; ++I) {
+    if (MFI.isDeadObjectIndex(I))
+      continue;
+
+    int64_t offset = MFI.getObjectOffset(I);
+    offset -= SlotSize;
+    MFI.setObjectOffset(I, offset);
+  }
+
+
+
 #ifdef EXPENSIVE_CHECKS
   MF.verify();
 #endif
@@ -2592,18 +2616,9 @@ void X86FrameLowering::emitMantiContigEpilog(
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
   MachineBasicBlock::iterator MBBI = MBB.getFirstTerminator();
 
-  uint64_t StackAlign = getStackAlignment();
   uint64_t StackSize = MFI.getStackSize();
   uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
-  uint64_t SlotSize = 8;
-  uint64_t InitialOffset = SlotSize;  // from return address we're passed.
-  uint64_t StackBump;
-
-
-  // compute the stack bump as done in the prologue.
-  // StackSize includes the watermark, if any.
-  StackBump = (StackSize - CalleeSaveSize) + SlotSize;  
-  StackBump += (StackBump + CalleeSaveSize + InitialOffset) % StackAlign;
+  uint64_t StackBump = StackSize - CalleeSaveSize;
 
   if (StackBump) {
     // move past the callee-restores, if any
