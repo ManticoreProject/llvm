@@ -2523,12 +2523,13 @@ void X86FrameLowering::emitMantiContigPrologue(
   MachineBasicBlock::iterator MBBI = MBB.begin();
 
   uint64_t StackAlign = getStackAlignment();
-  uint64_t StackSize = MFI.getStackSize();    // Number of bytes to allocate.
+  uint64_t OldStackSize = MFI.getStackSize();    // Number of bytes to allocate.
   uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
   uint64_t SlotSize = 8;
   uint64_t WatermarkSize = SlotSize;
   uint64_t InitialOffset = SlotSize;  // from return address we're passed.
   uint64_t StackBump;
+  uint64_t StackSize = OldStackSize;
 
   assert(StackAlign == 16 && "alignment doesn't match ABI expectations");
 
@@ -2538,8 +2539,13 @@ void X86FrameLowering::emitMantiContigPrologue(
     // it's a leaf, so no chance of GC (thus no watermark), 
     // nor do we need a particular stack alignment.
 
-    StackBump = (StackSize - CalleeSaveSize) + SlotSize;  
-    StackSize = StackBump + CalleeSaveSize;
+    StackBump = StackSize - CalleeSaveSize;
+
+    if (StackBump > 0) {
+      // still need space for spills though
+      StackBump += SlotSize;
+      StackSize = StackBump + CalleeSaveSize;
+    }
 
   } else {
 
@@ -2580,25 +2586,26 @@ void X86FrameLowering::emitMantiContigPrologue(
           .setMIFlag(MachineInstr::FrameSetup);  
   }
 
+  if (StackSize != OldStackSize) {
+    // set final stack size for correct stackmap emission
+    MFI.setStackSize(StackSize);
 
-  // set final stack size for correct stackmap emission
-  MFI.setStackSize(StackSize);
+    // after setting the stack size, the offsets for all stack objects
+    // shifts up to the top for some reason, so we need to pull them back
+    // down to avoid overwriting the return address or CSR
 
-  // after setting the stack size, the offsets for all stack objects
-  // shifts up to the top for some reason, so we need to pull them back
-  // down to avoid overwriting the return address or CSR
+    // Loop to process fixed stack objects:
+    // for (int I = MFI.getObjectIndexBegin(); I < 0; ++I) {
 
-  // Loop to process fixed stack objects:
-  // for (int I = MFI.getObjectIndexBegin(); I < 0; ++I) {
+    // Process ordinary stack objects.
+    for (int I = 0, E = MFI.getObjectIndexEnd(); I < E; ++I) {
+      if (MFI.isDeadObjectIndex(I))
+        continue;
 
-  // Process ordinary stack objects.
-  for (int I = 0, E = MFI.getObjectIndexEnd(); I < E; ++I) {
-    if (MFI.isDeadObjectIndex(I))
-      continue;
-
-    int64_t offset = MFI.getObjectOffset(I);
-    offset -= SlotSize;
-    MFI.setObjectOffset(I, offset);
+      int64_t offset = MFI.getObjectOffset(I);
+      offset -= SlotSize;
+      MFI.setObjectOffset(I, offset);
+    }
   }
 
 
