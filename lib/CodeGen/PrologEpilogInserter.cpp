@@ -975,10 +975,20 @@ void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
   const TargetFrameLowering &TFI = *Fn.getSubtarget().getFrameLowering();
 
   // Emit prologue/epilogue for Manticore's contiguous stacks.
-  if (Fn.getFunction()->getAttributes().hasFnAttribute("manti-contig")) {
+  bool MantiContig = Fn.getFunction()->getAttributes().hasFnAttribute("manti-contig");
+  bool MantiSegStack = Fn.getFunction()->getAttributes().hasFnAttribute("manti-segstack");
+  
+  if (MantiContig || MantiSegStack) {
     int numSaveBlocks = 0;
     for (MachineBasicBlock *SaveBlock : SaveBlocks) {
+      // emit standard contiguous stack prologue
       TFI.emitMantiContigPrologue(Fn, *SaveBlock);
+
+      if (MantiSegStack) {
+        // adjust the prologue for a segmented stack
+        TFI.adjustForMantiSegStack(Fn, *SaveBlock);
+      }
+
       numSaveBlocks++;
     }
 

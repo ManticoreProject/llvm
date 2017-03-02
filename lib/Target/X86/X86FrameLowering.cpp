@@ -2646,6 +2646,110 @@ void X86FrameLowering::emitMantiContigEpilog(
 #endif
 }
 
+void X86FrameLowering::adjustForMantiSegStack(
+    MachineFunction &MF, MachineBasicBlock &PrologueMBB) const {
+
+  // this adjustment is conceptually the same as adjustForSegmentedStacks,
+  // however, it is customized for Manticore's runtime-system.
+
+  DebugLoc DL;
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  uint64_t StackSize;
+  uint64_t Slop = 0;  // TODO for now, turning slop optimization off
+
+  StackSize = MFI.getStackSize();
+
+  // TODO need to add a flag to emitMantiContigPrologue that indicates
+  // whether the stack size should also be pushed above the watermark.
+
+  // Do not add anything for functions who do not need stack space
+  if (StackSize == 0)
+    return;
+
+  MachineBasicBlock *allocMBB = MF.CreateMachineBasicBlock();
+  MachineBasicBlock *checkMBB = MF.CreateMachineBasicBlock();
+  X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
+
+  for (const auto &LI : PrologueMBB.liveins()) {
+    allocMBB->addLiveIn(LI);
+    checkMBB->addLiveIn(LI);
+  }
+
+  MF.push_front(allocMBB);
+  MF.push_front(checkMBB);
+
+  // checkMBB:
+  // if StackSize < slop [  jump to PrologueMBB if limit < rsp
+  //    cmpq  LimOffset(VProcReg), %rsp
+  //    jl    PrologueMBB
+  //  ]
+  //  else [  jump to PrologueMBB if (limit + StackSize) < rsp
+  //    movq  LimOffset(VProcReg), Scratch
+  //    addq  $StackSize, Scratch
+  //    cmpq  Scratch, %rsp
+  //    jl   PrologueMBB
+  //  ]
+  //    
+
+  int LimVPOffset = 111; // TODO get the right offset from the attribute.
+  unsigned VProcReg = X86::R11;
+
+  if (StackSize < Slop) {
+    
+    addRegOffset(
+      BuildMI(checkMBB, DL, TII.get(X86::CMP64rm), X86::RSP),
+      VProcReg, false, LimVPOffset);
+
+    BuildMI(checkMBB, DL, TII.get(X86::JL_1)).addMBB(&PrologueMBB);
+
+  } else {
+
+    unsigned Scratch = X86::RBP;
+
+    addRegOffset(
+      BuildMI(checkMBB, DL, TII.get(X86::MOV64rm), Scratch),
+      VProcReg, false, LimVPOffset);
+
+    BuildMI(checkMBB, DL, TII.get(X86::ADD64ri32), Scratch)
+      .addReg(Scratch)
+      .addImm(StackSize)
+      ;
+
+    BuildMI(checkMBB, DL, TII.get(X86::CMP64rr))
+      .addReg(X86::RSP)
+      .addReg(Scratch)
+      ;
+
+    BuildMI(checkMBB, DL, TII.get(X86::JL_1)).addMBB(&PrologueMBB);
+
+  }
+
+  // otherwise, checkMBB falls through to allocMBB
+  
+  // TODO initalize allocMBB
+
+  BuildMI(allocMBB, DL, TII.get(X86::PUSH64i32))
+      .addImm(1234)
+      ;
+
+
+  // TODO if possible, maybe add probabilities to these successor edges?
+
+  allocMBB->addSuccessor(&PrologueMBB);
+
+  checkMBB->addSuccessor(allocMBB);
+  checkMBB->addSuccessor(&PrologueMBB);
+
+
+
+  MF.dump();
+
+
+#ifdef EXPENSIVE_CHECKS
+  MF.verify();
+#endif
+}
+
 bool X86FrameLowering::adjustStackWithPops(MachineBasicBlock &MBB,
                                            MachineBasicBlock::iterator MBBI,
                                            const DebugLoc &DL,

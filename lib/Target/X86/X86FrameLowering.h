@@ -79,6 +79,9 @@ public:
   void emitMantiContigEpilog(MachineFunction &MF,
                              MachineBasicBlock &PrologueMBB) const override;
 
+  void adjustForMantiSegStack(MachineFunction &MF,
+                             MachineBasicBlock &PrologueMBB) const override;
+
   void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
                             RegScavenger *RS = nullptr) const override;
 

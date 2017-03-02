@@ -187,6 +187,10 @@ public:
   virtual void emitMantiContigEpilog(MachineFunction &MF,
                                      MachineBasicBlock &PrologueMBB) const {}
 
+  /// Emit a prologue for Manticore segmented stacks.
+  virtual void adjustForMantiSegStack(MachineFunction &MF,
+                                     MachineBasicBlock &PrologueMBB) const {}
+
   /// spillCalleeSavedRegisters - Issues instruction(s) to spill all callee
   /// saved registers and returns true if it isn't possible / profitable to do
   /// so by issuing a series of store instructions via
