@@ -982,7 +982,7 @@ void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
     int numSaveBlocks = 0;
     for (MachineBasicBlock *SaveBlock : SaveBlocks) {
       // emit standard contiguous stack prologue
-      TFI.emitMantiContigPrologue(Fn, *SaveBlock, true);
+      TFI.emitMantiContigPrologue(Fn, *SaveBlock, MantiSegStack);
 
       if (MantiSegStack) {
         // adjust the prologue for a segmented stack
