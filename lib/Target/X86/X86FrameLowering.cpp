@@ -2506,7 +2506,7 @@ void X86FrameLowering::adjustForHiPEPrologue(
 }
 
 void X86FrameLowering::emitMantiContigPrologue(
-    MachineFunction &MF, MachineBasicBlock &MBB) const {
+    MachineFunction &MF, MachineBasicBlock &MBB, bool IncludeSize) const {
 
   // our goal here is to add a watermark at the top of every frame upon entry
   // to support generational stack collection.
@@ -2550,6 +2550,10 @@ void X86FrameLowering::emitMantiContigPrologue(
   } else {
 
     NeedsWatermark = true;
+
+    if (IncludeSize) {
+      WatermarkSize += SlotSize;
+    }
     
     // compute the minimum bump for all but CSRs
     StackBump = (StackSize - CalleeSaveSize) + SlotSize + WatermarkSize;  
@@ -2579,6 +2583,14 @@ void X86FrameLowering::emitMantiContigPrologue(
   }
 
   if (NeedsWatermark) {
+
+    if (IncludeSize) {
+      // push the frame's size
+      BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64i32))
+            .addImm(StackSize)
+            .setMIFlag(MachineInstr::FrameSetup); 
+    }
+
     // push the watermark to the end of the frame. 
     // This will leave SP correctly aligned whether we emitted a bump or not.
     BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64i32))
@@ -2603,7 +2615,7 @@ void X86FrameLowering::emitMantiContigPrologue(
         continue;
 
       int64_t offset = MFI.getObjectOffset(I);
-      offset -= SlotSize;
+      offset -= InitialOffset;
       MFI.setObjectOffset(I, offset);
     }
   }

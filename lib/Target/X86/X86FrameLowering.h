@@ -74,7 +74,8 @@ public:
                              MachineBasicBlock &PrologueMBB) const override;
 
   void emitMantiContigPrologue(MachineFunction &MF,
-                             MachineBasicBlock &PrologueMBB) const override;
+                             MachineBasicBlock &PrologueMBB,
+                             bool IncludeSize) const override;
 
   void emitMantiContigEpilog(MachineFunction &MF,
                              MachineBasicBlock &PrologueMBB) const override;

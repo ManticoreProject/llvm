@@ -181,7 +181,8 @@ public:
 
   /// Emit a prologue for Manticore contiguous stacks.
   virtual void emitMantiContigPrologue(MachineFunction &MF,
-                                     MachineBasicBlock &PrologueMBB) const {}
+                                     MachineBasicBlock &PrologueMBB,
+                                     bool IncludeSize) const {}
 
   /// Emit an epilog for Manticore contiguous stacks.
   virtual void emitMantiContigEpilog(MachineFunction &MF,
