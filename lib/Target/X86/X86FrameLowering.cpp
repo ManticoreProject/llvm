@@ -2671,9 +2671,6 @@ void X86FrameLowering::adjustForMantiSegStack(
 
   StackSize = MFI.getStackSize();
 
-  // TODO need to add a flag to emitMantiContigPrologue that indicates
-  // whether the stack size should also be pushed above the watermark.
-
   // Do not add anything for functions who do not need stack space
   if (StackSize == 0)
     return;
@@ -2705,6 +2702,7 @@ void X86FrameLowering::adjustForMantiSegStack(
 
   int LimVPOffset = 111; // TODO get the right offset from the attribute.
   unsigned VProcReg = X86::R11;
+  unsigned Scratch = X86::RBP;
 
   if (StackSize < Slop) {
     
@@ -2715,8 +2713,6 @@ void X86FrameLowering::adjustForMantiSegStack(
     BuildMI(checkMBB, DL, TII.get(X86::JL_1)).addMBB(&PrologueMBB);
 
   } else {
-
-    unsigned Scratch = X86::RBP;
 
     addRegOffset(
       BuildMI(checkMBB, DL, TII.get(X86::MOV64rm), Scratch),
@@ -2737,16 +2733,32 @@ void X86FrameLowering::adjustForMantiSegStack(
   }
 
   // otherwise, checkMBB falls through to allocMBB
+  //==================================================
   
-  // TODO initalize allocMBB
-
-  BuildMI(allocMBB, DL, TII.get(X86::PUSH64i32))
-      .addImm(1234)
-      ;
 
 
-  // TODO if possible, maybe add probabilities to these successor edges?
+  // allocMBB just calls our RTS handler
 
+  // TODO: maybe we need to pass the function's address as an argument?
+  // reference code for doing that:
+  //
+  // leaq  __manti_growstack(%rip), Scratch
+  // BuildMI(allocMBB, DL, TII.get(X86::LEA64r))
+  //   .addReg(Scratch, false)
+  //   .addReg(X86::RIP, false)
+  //   .addImm(1)
+  //   .addReg(0)
+  //   .addExternalSymbol("__manti_growstack")
+  //   .addReg(0);
+
+  BuildMI(allocMBB, DL, TII.get(X86::CALL64pcrel32))
+        .addExternalSymbol("__manti_growstack");
+
+  //==================================================
+
+
+
+  // TODO if it helps, maybe add probabilities to these successor edges?
   allocMBB->addSuccessor(&PrologueMBB);
 
   checkMBB->addSuccessor(allocMBB);
@@ -2754,7 +2766,7 @@ void X86FrameLowering::adjustForMantiSegStack(
 
 
 
-  MF.dump();
+  // MF.dump();
 
 
 #ifdef EXPENSIVE_CHECKS
