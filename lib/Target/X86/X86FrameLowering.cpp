@@ -2689,13 +2689,13 @@ void X86FrameLowering::adjustForMantiSegStack(
   // checkMBB:
   // if StackSize < slop [  jump to PrologueMBB if limit < rsp
   //    cmpq  LimOffset(VProcReg), %rsp
-  //    jl    PrologueMBB
+  //    jge    PrologueMBB
   //  ]
   //  else [  jump to PrologueMBB if (limit + StackSize) < rsp
   //    movq  LimOffset(VProcReg), Scratch
   //    addq  $StackSize, Scratch
   //    cmpq  Scratch, %rsp
-  //    jl   PrologueMBB
+  //    jge   PrologueMBB
   //  ]
   //    
 
@@ -2708,7 +2708,7 @@ void X86FrameLowering::adjustForMantiSegStack(
       BuildMI(checkMBB, DL, TII.get(X86::CMP64rm), X86::RSP),
       VProcReg, false, LimVPOffset);
 
-    BuildMI(checkMBB, DL, TII.get(X86::JL_1)).addMBB(&PrologueMBB);
+    BuildMI(checkMBB, DL, TII.get(X86::JGE_1)).addMBB(&PrologueMBB);
 
   } else {
 
@@ -2726,7 +2726,7 @@ void X86FrameLowering::adjustForMantiSegStack(
       .addReg(Scratch)
       ;
 
-    BuildMI(checkMBB, DL, TII.get(X86::JL_1)).addMBB(&PrologueMBB);
+    BuildMI(checkMBB, DL, TII.get(X86::JGE_1)).addMBB(&PrologueMBB);
 
   }
 
