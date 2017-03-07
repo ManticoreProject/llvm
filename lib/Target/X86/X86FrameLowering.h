@@ -81,7 +81,8 @@ public:
                              MachineBasicBlock &PrologueMBB) const override;
 
   void adjustForMantiSegStack(MachineFunction &MF,
-                             MachineBasicBlock &PrologueMBB) const override;
+                             MachineBasicBlock &PrologueMBB,
+                             uint64_t LimitOffset) const override;
 
   void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
                             RegScavenger *RS = nullptr) const override;

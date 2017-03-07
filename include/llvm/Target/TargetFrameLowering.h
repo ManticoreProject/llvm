@@ -190,7 +190,8 @@ public:
 
   /// Emit a prologue for Manticore segmented stacks.
   virtual void adjustForMantiSegStack(MachineFunction &MF,
-                                     MachineBasicBlock &PrologueMBB) const {}
+                                     MachineBasicBlock &PrologueMBB,
+                                     uint64_t LimitOffset) const {}
 
   /// spillCalleeSavedRegisters - Issues instruction(s) to spill all callee
   /// saved registers and returns true if it isn't possible / profitable to do

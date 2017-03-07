@@ -2659,7 +2659,7 @@ void X86FrameLowering::emitMantiContigEpilog(
 }
 
 void X86FrameLowering::adjustForMantiSegStack(
-    MachineFunction &MF, MachineBasicBlock &PrologueMBB) const {
+    MachineFunction &MF, MachineBasicBlock &PrologueMBB, uint64_t LimVPOffset) const {
 
   // this adjustment is conceptually the same as adjustForSegmentedStacks,
   // however, it is customized for Manticore's runtime-system.
@@ -2677,7 +2677,6 @@ void X86FrameLowering::adjustForMantiSegStack(
 
   MachineBasicBlock *allocMBB = MF.CreateMachineBasicBlock();
   MachineBasicBlock *checkMBB = MF.CreateMachineBasicBlock();
-  X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
 
   for (const auto &LI : PrologueMBB.liveins()) {
     allocMBB->addLiveIn(LI);
@@ -2700,7 +2699,6 @@ void X86FrameLowering::adjustForMantiSegStack(
   //  ]
   //    
 
-  int LimVPOffset = 111; // TODO get the right offset from the attribute.
   unsigned VProcReg = X86::R11;
   unsigned Scratch = X86::RBP;
 
