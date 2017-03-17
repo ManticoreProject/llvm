@@ -2667,7 +2667,7 @@ void X86FrameLowering::adjustForMantiSegStack(
   DebugLoc DL;
   MachineFrameInfo &MFI = MF.getFrameInfo();
   uint64_t StackSize;
-  uint64_t Slop = 0;  // TODO for now, turning slop optimization off
+  uint64_t Slop = 128;
 
   StackSize = MFI.getStackSize();
 
