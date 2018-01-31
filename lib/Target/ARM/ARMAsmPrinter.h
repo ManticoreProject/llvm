@@ -113,9 +113,6 @@ public:
   void LowerPATCHABLE_FUNCTION_ENTER(const MachineInstr &MI);
   void LowerPATCHABLE_FUNCTION_EXIT(const MachineInstr &MI);
   void LowerPATCHABLE_TAIL_CALL(const MachineInstr &MI);
-  // Helper function that emits the XRay sleds we've collected for a particular
-  // function.
-  void EmitXRayTable();
 
 private:
   void EmitSled(const MachineInstr &MI, SledKind Kind);
@@ -138,8 +135,7 @@ public:
     const Triple &TT = TM.getTargetTriple();
     if (!TT.isOSBinFormatMachO())
       return 0;
-    bool isThumb = TT.getArch() == Triple::thumb ||
-                   TT.getArch() == Triple::thumbeb ||
+    bool isThumb = TT.isThumb() ||
                    TT.getSubArch() == Triple::ARMSubArch_v7m ||
                    TT.getSubArch() == Triple::ARMSubArch_v6m;
     return isThumb ? ARM::DW_ISA_ARM_thumb : ARM::DW_ISA_ARM_arm;

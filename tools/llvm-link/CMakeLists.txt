@@ -1,4 +1,5 @@
 set(LLVM_LINK_COMPONENTS
+  BitReader
   BitWriter
   Core
   IRReader
@@ -6,6 +7,7 @@ set(LLVM_LINK_COMPONENTS
   Object
   Support
   TransformUtils
+  IPO
   )
 
 add_llvm_tool(llvm-link

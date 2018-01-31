@@ -28,7 +28,7 @@ if(NOT DEFINED LLVM_COMPILER_CHECKED)
         # bug in libstdc++4.6 that is fixed in libstdc++4.7.
         set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
         set(OLD_CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
-        set(CMAKE_REQUIRED_FLAGS "-std=c++0x")
+        set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -std=c++0x")
         check_cxx_source_compiles("
 #include <atomic>
 std::atomic<float> x(0.0f);
@@ -43,8 +43,8 @@ int main() { return (float)x; }"
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
       if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19.0)
         message(FATAL_ERROR "Host Visual Studio must be at least 2015")
-      elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19.00.24215.1)
-        message(WARNING "Host Visual Studio should at least be 2015 Update 3 (MSVC 19.00.24215.1)"
+      elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19.00.24213.1)
+        message(WARNING "Host Visual Studio should at least be 2015 Update 3 (MSVC 19.00.24213.1)"
           "  due to miscompiles from earlier versions")
       endif()
     endif()

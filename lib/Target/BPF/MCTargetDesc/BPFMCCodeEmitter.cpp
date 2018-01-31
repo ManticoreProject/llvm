@@ -12,24 +12,25 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/BPFMCTargetDesc.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/MC/MCSymbol.h"
-#include "llvm/ADT/Statistic.h"
+#include "llvm/Support/Endian.h"
 #include "llvm/Support/EndianStream.h"
-#include "llvm/Support/raw_ostream.h"
+#include <cassert>
+#include <cstdint>
+
 using namespace llvm;
 
 #define DEBUG_TYPE "mccodeemitter"
 
 namespace {
+
 class BPFMCCodeEmitter : public MCCodeEmitter {
-  BPFMCCodeEmitter(const BPFMCCodeEmitter &) = delete;
-  void operator=(const BPFMCCodeEmitter &) = delete;
   const MCInstrInfo &MCII;
   const MCRegisterInfo &MRI;
   bool IsLittleEndian;
@@ -38,8 +39,9 @@ public:
   BPFMCCodeEmitter(const MCInstrInfo &mcii, const MCRegisterInfo &mri,
                    bool IsLittleEndian)
       : MCII(mcii), MRI(mri), IsLittleEndian(IsLittleEndian) {}
-
-  ~BPFMCCodeEmitter() {}
+  BPFMCCodeEmitter(const BPFMCCodeEmitter &) = delete;
+  void operator=(const BPFMCCodeEmitter &) = delete;
+  ~BPFMCCodeEmitter() override = default;
 
   // getBinaryCodeForInstr - TableGen'erated function for getting the
   // binary encoding for an instruction.
@@ -66,7 +68,8 @@ private:
   void verifyInstructionPredicates(const MCInst &MI,
                                    uint64_t AvailableFeatures) const;
 };
-}
+
+} // end anonymous namespace
 
 MCCodeEmitter *llvm::createBPFMCCodeEmitter(const MCInstrInfo &MCII,
                                             const MCRegisterInfo &MRI,
@@ -97,7 +100,7 @@ unsigned BPFMCCodeEmitter::getMachineOpValue(const MCInst &MI,
 
   if (MI.getOpcode() == BPF::JAL)
     // func call name
-    Fixups.push_back(MCFixup::create(0, Expr, FK_SecRel_4));
+    Fixups.push_back(MCFixup::create(0, Expr, FK_PCRel_4));
   else if (MI.getOpcode() == BPF::LD_imm64)
     Fixups.push_back(MCFixup::create(0, Expr, FK_SecRel_8));
   else

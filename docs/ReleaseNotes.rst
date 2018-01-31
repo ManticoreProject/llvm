@@ -1,21 +1,21 @@
 ========================
-LLVM 4.0.0 Release Notes
+LLVM 6.0.0 Release Notes
 ========================
 
 .. contents::
     :local:
 
 .. warning::
-   These are in-progress notes for the upcoming LLVM 4.0.0 release.  You may
-   prefer the `LLVM 3.9 Release Notes <http://llvm.org/releases/3.9.0/docs
-   /ReleaseNotes.html>`_.
+   These are in-progress notes for the upcoming LLVM 6 release.
+   Release notes for previous releases can be found on
+   `the Download Page <http://releases.llvm.org/download.html>`_.
 
 
 Introduction
 ============
 
 This document contains the release notes for the LLVM Compiler Infrastructure,
-release 4.0.0.  Here we describe the status of LLVM, including major improvements
+release 5.0.0.  Here we describe the status of LLVM, including major improvements
 from the previous release, improvements in various subprojects of LLVM, and
 some of the current users of the code.  All LLVM releases may be downloaded
 from the `LLVM releases web site <http://llvm.org/releases/>`_.
@@ -33,13 +33,6 @@ page <http://llvm.org/releases/>`_.
 
 Non-comprehensive list of changes in this release
 =================================================
-* The C API functions LLVMAddFunctionAttr, LLVMGetFunctionAttr,
-  LLVMRemoveFunctionAttr, LLVMAddAttribute, LLVMRemoveAttribute,
-  LLVMGetAttribute, LLVMAddInstrAttribute and
-  LLVMRemoveInstrAttribute have been removed.
-
-* The C API enum LLVMAttribute has been deleted.
-
 .. NOTE
    For small 1-3 sentence descriptions, just add an entry at the end of
    this list. If your description won't fit comfortably in one bullet
@@ -47,17 +40,23 @@ Non-comprehensive list of changes in this release
    functionality, or simply have a lot to talk about), see the `NOTE` below
    for adding a new subsection.
 
-* The definition and uses of LLVM_ATRIBUTE_UNUSED_RESULT in the LLVM source
-  were replaced with LLVM_NODISCARD, which matches the C++17 [[nodiscard]]
-  semantics rather than gcc's __attribute__((warn_unused_result)).
+* The ``Redirects`` argument of ``llvm::sys::ExecuteAndWait`` and
+  ``llvm::sys::ExecuteNoWait`` was changed to an ``ArrayRef`` of optional
+  ``StringRef``'s to make it safer and more convenient to use.
 
-* Minimum compiler version to build has been raised to GCC 4.8 and VS 2015.
+* The backend name was added to the Target Registry to allow run-time
+  information to be fed back into TableGen. Out-of-tree targets will need to add
+  the name used in the `def X : Target` definition to the call to
+  `RegisterTarget`.
 
-* The Timer related APIs now expect a Name and Description. When upgrading code
-  the previously used names should become descriptions and a short name in the
-  style of a programming language identifier should be added.
+* The ``Debugify`` pass was added to ``opt`` to facilitate testing of debug
+  info preservation. This pass attaches synthetic ``DILocations`` and
+  ``DIVariables`` to the instructions in a ``Module``. The ``CheckDebugify``
+  pass determines how much of the metadata is lost.
 
-* ... next change ...
+* Significantly improved quality of CodeView debug info for Windows.
+
+* Note..
 
 .. NOTE
    If you would like to document a larger change, then you can add a
@@ -72,10 +71,13 @@ Non-comprehensive list of changes in this release
 Changes to the LLVM IR
 ----------------------
 
-Changes to the ARM Backend
---------------------------
+Changes to the ARM Target
+-------------------------
 
- During this release ...
+During this release the ARM target has:
+
+* Got support for enabling SjLj exception handling on platforms where it
+  isn't the default.
 
 
 Changes to the MIPS Target
@@ -92,7 +94,10 @@ Changes to the PowerPC Target
 Changes to the X86 Target
 -------------------------
 
- During this release ...
+During this release ...
+
+* Got support for enabling SjLj exception handling on platforms where it
+  isn't the default.
 
 Changes to the AMDGPU Target
 -----------------------------
@@ -102,22 +107,63 @@ Changes to the AMDGPU Target
 Changes to the AVR Target
 -----------------------------
 
-* The entire backend has been merged in-tree with all tests passing. All of
-  the instruction selection code and the machine code backend has landed
-  recently and is fully usable.
+ During this release ...
 
 Changes to the OCaml bindings
 -----------------------------
 
-* The attribute API was completely overhauled, following the changes
-  to the C API.
+ During this release ...
 
 
-External Open Source Projects Using LLVM 4.0.0
-==============================================
+Changes to the C API
+--------------------
 
-* A project...
+ During this release ...
 
+
+External Open Source Projects Using LLVM 6
+==========================================
+
+JFS - JIT Fuzzing Solver
+------------------------
+
+`JFS <https://github.com/delcypher/jfs>`_ is an experimental constraint solver
+designed to investigate using coverage guided fuzzing as an incomplete strategy
+for solving boolean, BitVector, and floating-point constraints.
+It is built on top of LLVM, Clang, LibFuzzer, and Z3.
+
+The solver works by generating a C++ program where the reachability of an
+`abort()` statement is equivalent to finding a satisfying assignment to the
+constraints. This program is then compiled by Clang with `SanitizerCoverage
+<https://releases.llvm.org/6.0.0/tools/clang/docs/SanitizerCoverage.html>`_
+instrumentation and then fuzzed using :doc:`LibFuzzer <LibFuzzer>`.
+
+Zig Programming Language
+------------------------
+
+`Zig <http://ziglang.org>`_  is an open-source programming language designed
+for robustness, optimality, and clarity. It is intended to replace C. It
+provides high level features such as Generics,
+Compile Time Function Execution, and Partial Evaluation, yet exposes low level
+LLVM IR features such as Aliases. Zig uses Clang to provide automatic
+import of .h symbols - even inline functions and macros. Zig uses LLD combined
+with lazily building compiler-rt to provide out-of-the-box cross-compiling for
+all supported targets.
+
+LDC - the LLVM-based D compiler
+-------------------------------
+
+`D <http://dlang.org>`_ is a language with C-like syntax and static typing. It
+pragmatically combines efficiency, control, and modeling power, with safety and
+programmer productivity. D supports powerful concepts like Compile-Time Function
+Execution (CTFE) and Template Meta-Programming, provides an innovative approach
+to concurrency and offers many classical paradigms.
+
+`LDC <http://wiki.dlang.org/LDC>`_ uses the frontend from the reference compiler
+combined with LLVM as backend to produce efficient native code. LDC targets
+x86/x86_64 systems like Linux, OS X, FreeBSD and Windows and also Linux on ARM
+and PowerPC (32/64 bit). Ports to other architectures like AArch64 and MIPS64
+are underway.
 
 Additional Information
 ======================

@@ -21,9 +21,9 @@
 # RUN: llvm-mc %s -arch=mips -mcpu=mips32 -filetype=obj | \
 # RUN:   llvm-objdump -d -r - | FileCheck %s -check-prefixes=ELF-O32
 # RUN: llvm-mc %s -arch=mips64 -mcpu=mips64 -target-abi n32 -filetype=obj | \
-# RUN:   llvm-objdump -d -r - | FileCheck %s -check-prefixes=ELF-NXX
+# RUN:   llvm-objdump -d -r - | FileCheck %s -check-prefixes=ELF-NXX,ELF-N32
 # RUN: llvm-mc %s -arch=mips64 -mcpu=mips64 -target-abi n64 -filetype=obj | \
-# RUN:   llvm-objdump -d -r - | FileCheck %s -check-prefixes=ELF-NXX
+# RUN:   llvm-objdump -d -r - | FileCheck %s -check-prefixes=ELF-NXX,ELF-N64
 
   .weak weak_label
 
@@ -61,7 +61,8 @@ local_label:
 # ELF-O32-NEXT:                 R_MIPS_PC16  weak_label
 
 # ELF-NXX:      10 00 00 00     b       4
-# ELF-NXX-NEXT:                 R_MIPS_PC16/R_MIPS_NONE/R_MIPS_NONE  weak_label
+# ELF-N32-NEXT:                 R_MIPS_PC16  weak_label
+# ELF-N64-NEXT:                 R_MIPS_PC16/R_MIPS_NONE/R_MIPS_NONE  weak_label
 
   j global_label
   nop
@@ -76,7 +77,8 @@ local_label:
 # ELF-O32-NEXT:         00000010:  R_MIPS_PC16  global_label
 
 # ELF-NXX:      10 00 00 00     b       4
-# ELF-NXX-NEXT:                 R_MIPS_PC16/R_MIPS_NONE/R_MIPS_NONE  global_label
+# ELF-N32-NEXT:                 R_MIPS_PC16 global_label
+# ELF-N64-NEXT:                 R_MIPS_PC16/R_MIPS_NONE/R_MIPS_NONE  global_label
 
   j .text
   nop
@@ -87,11 +89,11 @@ local_label:
 # MICRO:  b      .text            # encoding: [0x94,0x00,A,A]
 # MICRO:                          #   fixup A - offset: 0, value: .text, kind: fixup_MICROMIPS_PC16_S1
 
-# ELF-O32:      10 00 ff ff     b       0
-# ELF-O32-NEXT:         00000018:  R_MIPS_PC16  .text
+# ELF-O32:      10 00 ff f9 	b	-24 <local_label>
+# ELF-O32-NEXT: 00 00 00 00 	nop
 
-# ELF-NXX:      10 00 00 00     b       4
-# ELF-NXX-NEXT:                 R_MIPS_PC16/R_MIPS_NONE/R_MIPS_NONE  .text
+# ELF-NXX:      10 00 ff f9 	b	-24 <local_label>
+# ELF-NXX-NEXT: 00 00 00 00 	nop
 
   j 1f
   nop

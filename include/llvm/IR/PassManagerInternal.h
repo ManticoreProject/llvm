@@ -25,8 +25,8 @@
 
 namespace llvm {
 
+template <typename IRUnitT> class AllAnalysesOn;
 template <typename IRUnitT, typename... ExtraArgTs> class AnalysisManager;
-class Invalidator;
 class PreservedAnalyses;
 
 /// \brief Implementation details of the pass manager interfaces.
@@ -115,7 +115,7 @@ struct AnalysisResultConcept {
 /// \brief SFINAE metafunction for computing whether \c ResultT provides an
 /// \c invalidate member function.
 template <typename IRUnitT, typename ResultT> class ResultHasInvalidateMethod {
-  typedef char EnabledType;
+  using EnabledType = char;
   struct DisabledType {
     char a, b;
   };
@@ -123,7 +123,7 @@ template <typename IRUnitT, typename ResultT> class ResultHasInvalidateMethod {
   // Purely to help out MSVC which fails to disable the below specialization,
   // explicitly enable using the result type's invalidate routine if we can
   // successfully call that routine.
-  template <typename T> struct Nonce { typedef EnabledType Type; };
+  template <typename T> struct Nonce { using Type = EnabledType; };
   template <typename T>
   static typename Nonce<decltype(std::declval<T>().invalidate(
       std::declval<IRUnitT &>(), std::declval<PreservedAnalyses>()))>::Type
@@ -191,7 +191,9 @@ struct AnalysisResultModel<IRUnitT, PassT, ResultT, PreservedAnalysesT,
   // ones that use the trivial behavior.
   bool invalidate(IRUnitT &, const PreservedAnalysesT &PA,
                   InvalidatorT &) override {
-    return !PA.preserved(PassT::ID());
+    auto PAC = PA.template getChecker<PassT>();
+    return !PAC.preserved() &&
+           !PAC.template preservedSet<AllAnalysesOn<IRUnitT>>();
   }
 
   ResultT Result;
@@ -277,9 +279,9 @@ struct AnalysisPassModel : AnalysisPassConcept<IRUnitT, PreservedAnalysesT,
   }
 
   // FIXME: Replace PassT::Result with type traits when we use C++11.
-  typedef AnalysisResultModel<IRUnitT, PassT, typename PassT::Result,
-                              PreservedAnalysesT, InvalidatorT>
-      ResultModelT;
+  using ResultModelT =
+      AnalysisResultModel<IRUnitT, PassT, typename PassT::Result,
+                          PreservedAnalysesT, InvalidatorT>;
 
   /// \brief The model delegates to the \c PassT::run method.
   ///
@@ -288,7 +290,7 @@ struct AnalysisPassModel : AnalysisPassConcept<IRUnitT, PreservedAnalysesT,
       AnalysisResultConcept<IRUnitT, PreservedAnalysesT, InvalidatorT>>
   run(IRUnitT &IR, AnalysisManager<IRUnitT, ExtraArgTs...> &AM,
       ExtraArgTs... ExtraArgs) override {
-    return make_unique<ResultModelT>(Pass.run(IR, AM, ExtraArgs...));
+    return llvm::make_unique<ResultModelT>(Pass.run(IR, AM, ExtraArgs...));
   }
 
   /// \brief The model delegates to a static \c PassT::name method.

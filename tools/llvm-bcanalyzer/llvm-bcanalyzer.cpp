@@ -31,7 +31,6 @@
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitstreamReader.h"
 #include "llvm/Bitcode/LLVMBitCodes.h"
-#include "llvm/IR/Verifier.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -40,10 +39,6 @@
 #include "llvm/Support/SHA1.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/raw_ostream.h"
-#include <algorithm>
-#include <cctype>
-#include <map>
-#include <system_error>
 using namespace llvm;
 
 static cl::opt<std::string>
@@ -70,6 +65,10 @@ static cl::opt<std::string>
 static cl::opt<bool>
   ShowBinaryBlobs("show-binary-blobs",
                   cl::desc("Print binary blobs using hex escapes"));
+
+static cl::opt<std::string> CheckHash(
+    "check-hash",
+    cl::desc("Check module hash using the argument as a string table"));
 
 namespace {
 
@@ -121,7 +120,11 @@ static const char *GetBlockName(unsigned BlockID,
   case bitc::USELIST_BLOCK_ID:             return "USELIST_BLOCK_ID";
   case bitc::GLOBALVAL_SUMMARY_BLOCK_ID:
                                            return "GLOBALVAL_SUMMARY_BLOCK";
+  case bitc::FULL_LTO_GLOBALVAL_SUMMARY_BLOCK_ID:
+                                      return "FULL_LTO_GLOBALVAL_SUMMARY_BLOCK";
   case bitc::MODULE_STRTAB_BLOCK_ID:       return "MODULE_STRTAB_BLOCK";
+  case bitc::STRTAB_BLOCK_ID:              return "STRTAB_BLOCK";
+  case bitc::SYMTAB_BLOCK_ID:              return "SYMTAB_BLOCK";
   }
 }
 
@@ -171,7 +174,6 @@ static const char *GetCodeName(unsigned CodeID, unsigned BlockID,
       STRINGIFY_CODE(MODULE_CODE, GLOBALVAR)
       STRINGIFY_CODE(MODULE_CODE, FUNCTION)
       STRINGIFY_CODE(MODULE_CODE, ALIAS)
-      STRINGIFY_CODE(MODULE_CODE, PURGEVALS)
       STRINGIFY_CODE(MODULE_CODE, GCNAME)
       STRINGIFY_CODE(MODULE_CODE, VSTOFFSET)
       STRINGIFY_CODE(MODULE_CODE, METADATA_VALUES_UNUSED)
@@ -298,6 +300,7 @@ static const char *GetCodeName(unsigned CodeID, unsigned BlockID,
       STRINGIFY_CODE(MST_CODE, HASH)
     }
   case bitc::GLOBALVAL_SUMMARY_BLOCK_ID:
+  case bitc::FULL_LTO_GLOBALVAL_SUMMARY_BLOCK_ID:
     switch (CodeID) {
     default:
       return nullptr;
@@ -312,6 +315,13 @@ static const char *GetCodeName(unsigned CodeID, unsigned BlockID,
       STRINGIFY_CODE(FS, COMBINED_ORIGINAL_NAME)
       STRINGIFY_CODE(FS, VERSION)
       STRINGIFY_CODE(FS, TYPE_TESTS)
+      STRINGIFY_CODE(FS, TYPE_TEST_ASSUME_VCALLS)
+      STRINGIFY_CODE(FS, TYPE_CHECKED_LOAD_VCALLS)
+      STRINGIFY_CODE(FS, TYPE_TEST_ASSUME_CONST_VCALL)
+      STRINGIFY_CODE(FS, TYPE_CHECKED_LOAD_CONST_VCALL)
+      STRINGIFY_CODE(FS, VALUE_GUID)
+      STRINGIFY_CODE(FS, CFI_FUNCTION_DEFS)
+      STRINGIFY_CODE(FS, CFI_FUNCTION_DECLS)
     }
   case bitc::METADATA_ATTACHMENT_ID:
     switch(CodeID) {
@@ -322,16 +332,15 @@ static const char *GetCodeName(unsigned CodeID, unsigned BlockID,
     switch(CodeID) {
     default:return nullptr;
       STRINGIFY_CODE(METADATA, STRING_OLD)
-      STRINGIFY_CODE(METADATA, STRINGS)
-      STRINGIFY_CODE(METADATA, NAME)
-      STRINGIFY_CODE(METADATA, KIND) // Older bitcode has it in a MODULE_BLOCK
-      STRINGIFY_CODE(METADATA, NODE)
       STRINGIFY_CODE(METADATA, VALUE)
+      STRINGIFY_CODE(METADATA, NODE)
+      STRINGIFY_CODE(METADATA, NAME)
+      STRINGIFY_CODE(METADATA, DISTINCT_NODE)
+      STRINGIFY_CODE(METADATA, KIND) // Older bitcode has it in a MODULE_BLOCK
+      STRINGIFY_CODE(METADATA, LOCATION)
       STRINGIFY_CODE(METADATA, OLD_NODE)
       STRINGIFY_CODE(METADATA, OLD_FN_NODE)
       STRINGIFY_CODE(METADATA, NAMED_NODE)
-      STRINGIFY_CODE(METADATA, DISTINCT_NODE)
-      STRINGIFY_CODE(METADATA, LOCATION)
       STRINGIFY_CODE(METADATA, GENERIC_DEBUG)
       STRINGIFY_CODE(METADATA, SUBRANGE)
       STRINGIFY_CODE(METADATA, ENUMERATOR)
@@ -353,6 +362,13 @@ static const char *GetCodeName(unsigned CodeID, unsigned BlockID,
       STRINGIFY_CODE(METADATA, OBJC_PROPERTY)
       STRINGIFY_CODE(METADATA, IMPORTED_ENTITY)
       STRINGIFY_CODE(METADATA, MODULE)
+      STRINGIFY_CODE(METADATA, MACRO)
+      STRINGIFY_CODE(METADATA, MACRO_FILE)
+      STRINGIFY_CODE(METADATA, STRINGS)
+      STRINGIFY_CODE(METADATA, GLOBAL_DECL_ATTACHMENT)
+      STRINGIFY_CODE(METADATA, GLOBAL_VAR_EXPR)
+      STRINGIFY_CODE(METADATA, INDEX_OFFSET)
+      STRINGIFY_CODE(METADATA, INDEX)
     }
   case bitc::METADATA_KIND_BLOCK_ID:
     switch (CodeID) {
@@ -371,6 +387,16 @@ static const char *GetCodeName(unsigned CodeID, unsigned BlockID,
     switch(CodeID) {
     default: return nullptr;
     case bitc::OPERAND_BUNDLE_TAG: return "OPERAND_BUNDLE_TAG";
+    }
+  case bitc::STRTAB_BLOCK_ID:
+    switch(CodeID) {
+    default: return nullptr;
+    case bitc::STRTAB_BLOB: return "BLOB";
+    }
+  case bitc::SYMTAB_BLOCK_ID:
+    switch(CodeID) {
+    default: return nullptr;
+    case bitc::SYMTAB_BLOB: return "BLOB";
     }
   }
 #undef STRINGIFY_CODE
@@ -514,6 +540,9 @@ static bool ParseBlock(BitstreamCursor &Stream, BitstreamBlockInfo &BlockInfo,
 
   SmallVector<uint64_t, 64> Record;
 
+  // Keep the offset to the metadata index if seen.
+  uint64_t MetadataIndexOffset = 0;
+
   // Read all the records for this block.
   while (1) {
     if (Stream.AtEndOfStream())
@@ -600,14 +629,37 @@ static bool ParseBlock(BitstreamCursor &Stream, BitstreamBlockInfo &BlockInfo,
       for (unsigned i = 0, e = Record.size(); i != e; ++i)
         outs() << " op" << i << "=" << (int64_t)Record[i];
 
+      // If we found a metadata index, let's verify that we had an offset before
+      // and validate its forward reference offset was correct!
+      if (BlockID == bitc::METADATA_BLOCK_ID) {
+        if (Code == bitc::METADATA_INDEX_OFFSET) {
+          if (Record.size() != 2)
+            outs() << "(Invalid record)";
+          else {
+            auto Offset = Record[0] + (Record[1] << 32);
+            MetadataIndexOffset = Stream.GetCurrentBitNo() + Offset;
+          }
+        }
+        if (Code == bitc::METADATA_INDEX) {
+          outs() << " (offset ";
+          if (MetadataIndexOffset == RecordStartBit)
+            outs() << "match)";
+          else
+            outs() << "mismatch: " << MetadataIndexOffset << " vs "
+                   << RecordStartBit << ")";
+        }
+      }
+
       // If we found a module hash, let's verify that it matches!
-      if (BlockID == bitc::MODULE_BLOCK_ID && Code == bitc::MODULE_CODE_HASH) {
+      if (BlockID == bitc::MODULE_BLOCK_ID && Code == bitc::MODULE_CODE_HASH &&
+          !CheckHash.empty()) {
         if (Record.size() != 5)
           outs() << " (invalid)";
         else {
           // Recompute the hash and compare it to the one in the bitcode
           SHA1 Hasher;
           StringRef Hash;
+          Hasher.update(CheckHash);
           {
             int BlockSize = (CurrentRecordPos / 8) - BlockEntryPos;
             auto Ptr = Stream.getPointerToByte(BlockEntryPos, BlockSize);

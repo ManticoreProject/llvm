@@ -403,7 +403,7 @@ entry:
 ; CHECK: [[ELSE_LABEL]]
 ; CHECK-NEXT: slwi 3, 4, 1
 ; DISABLE: ld 14, -[[STACK_OFFSET]](1) # 8-byte Folded Reload
-; CHECK-NEXT blr
+; CHECK-NEXT: blr
 ; 
 define i32 @inlineAsm(i32 %cond, i32 %N) {
 entry:
@@ -591,7 +591,9 @@ if.end:
 
 ; Another infinite loop test this time with two nested infinite loop.
 ; CHECK-LABEL: infiniteloop3
-; CHECK: # %end
+; CHECK: Lfunc_begin[[FUNCNUM:[0-9]+]]
+; CHECK: bclr
+; CHECK: Lfunc_end[[FUNCNUM]]
 define void @infiniteloop3() {
 entry:
   br i1 undef, label %loop2a, label %body

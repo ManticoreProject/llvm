@@ -74,7 +74,7 @@ bool ArchAll = false;
 
 enum RadixTy { octal = 8, decimal = 10, hexadecimal = 16 };
 static cl::opt<unsigned int>
-Radix("-radix", cl::desc("Print size in radix. Only 8, 10, and 16 are valid"),
+Radix("radix", cl::desc("Print size in radix. Only 8, 10, and 16 are valid"),
       cl::init(decimal));
 
 static cl::opt<RadixTy>
@@ -883,8 +883,7 @@ int main(int argc, char **argv) {
     InputFilenames.push_back("a.out");
 
   MoreThanOneFile = InputFilenames.size() > 1;
-  std::for_each(InputFilenames.begin(), InputFilenames.end(),
-                printFileSectionSizes);
+  llvm::for_each(InputFilenames, printFileSectionSizes);
   if (OutputFormat == berkeley && TotalSizes)
     printBerkelyTotals();
 

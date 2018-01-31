@@ -23,6 +23,8 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <iterator>
+#include <type_traits>
 #include <vector>
 
 namespace llvm {
@@ -54,11 +56,11 @@ template <typename T, typename VectorT = std::vector<T>,
           typename MapT = DenseMap<T, ptrdiff_t>>
 class PriorityWorklist {
 public:
-  typedef T value_type;
-  typedef T key_type;
-  typedef T& reference;
-  typedef const T& const_reference;
-  typedef typename MapT::size_type size_type;
+  using value_type = T;
+  using key_type = T;
+  using reference = T&;
+  using const_reference = const T&;
+  using size_type = typename MapT::size_type;
 
   /// Construct an empty PriorityWorklist
   PriorityWorklist() = default;
@@ -105,6 +107,39 @@ public:
       V.push_back(X);
     }
     return false;
+  }
+
+  /// Insert a sequence of new elements into the PriorityWorklist.
+  template <typename SequenceT>
+  typename std::enable_if<!std::is_convertible<SequenceT, T>::value>::type
+  insert(SequenceT &&Input) {
+    if (std::begin(Input) == std::end(Input))
+      // Nothing to do for an empty input sequence.
+      return;
+
+    // First pull the input sequence into the vector as a bulk append
+    // operation.
+    ptrdiff_t StartIndex = V.size();
+    V.insert(V.end(), std::begin(Input), std::end(Input));
+    // Now walk backwards fixing up the index map and deleting any duplicates.
+    for (ptrdiff_t i = V.size() - 1; i >= StartIndex; --i) {
+      auto InsertResult = M.insert({V[i], i});
+      if (InsertResult.second)
+        continue;
+
+      // If the existing index is before this insert's start, nuke that one and
+      // move it up.
+      ptrdiff_t &Index = InsertResult.first->second;
+      if (Index < StartIndex) {
+        V[Index] = T();
+        Index = i;
+        continue;
+      }
+
+      // Otherwise the existing one comes first so just clear out the value in
+      // this slot.
+      V[i] = T();
+    }
   }
 
   /// Remove the last element of the PriorityWorklist.
@@ -168,6 +203,11 @@ public:
     V.erase(E, V.end());
     return true;
   }
+
+  /// Reverse the items in the PriorityWorklist.
+  ///
+  /// This does an in-place reversal. Other kinds of reverse aren't easy to
+  /// support in the face of the worklist semantics.
 
   /// Completely clear the PriorityWorklist
   void clear() {

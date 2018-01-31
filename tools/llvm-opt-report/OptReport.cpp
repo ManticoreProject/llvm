@@ -358,7 +358,7 @@ static bool writeReport(LocationInfoTy &LocationInfo) {
         std::map<int, OptReportLocationInfo> ColsInfo;
         unsigned InlinedCols = 0, UnrolledCols = 0, VectorizedCols = 0;
 
-        if (LII != FileInfo.end()) {
+        if (LII != FileInfo.end() && !FuncNameSet.empty()) {
           const auto &LineInfo = LII->second;
 
           for (auto &CI : LineInfo.find(*FuncNameSet.begin())->second) {
@@ -475,13 +475,21 @@ static bool writeReport(LocationInfoTy &LocationInfo) {
       std::map<std::map<int, OptReportLocationInfo>,
                std::set<std::string>> UniqueLIs;
 
+      OptReportLocationInfo AllLI;
       if (LII != FileInfo.end()) {
         const auto &FuncLineInfo = LII->second;
-        for (const auto &FLII : FuncLineInfo)
+        for (const auto &FLII : FuncLineInfo) {
           UniqueLIs[FLII.second].insert(FLII.first);
+
+          for (const auto &OI : FLII.second)
+            AllLI |= OI.second;
+        }
       }
 
-      if (UniqueLIs.size() > 1) {
+      bool NothingHappened = !AllLI.Inlined.Transformed &&
+                             !AllLI.Unrolled.Transformed &&
+                             !AllLI.Vectorized.Transformed;
+      if (UniqueLIs.size() > 1 && !NothingHappened) {
         OS << " [[\n";
         for (const auto &FSLI : UniqueLIs)
           PrintLine(true, FSLI.second);
@@ -506,8 +514,10 @@ int main(int argc, const char **argv) {
       "A tool to generate an optimization report from YAML optimization"
       " record files.\n");
 
-  if (Help)
+  if (Help) {
     cl::PrintHelpMessage();
+    return 0;
+  }
 
   LocationInfoTy LocationInfo;
   if (!readLocationInfo(LocationInfo))

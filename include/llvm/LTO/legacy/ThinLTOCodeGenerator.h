@@ -20,6 +20,7 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/IR/ModuleSummaryIndex.h"
+#include "llvm/Support/CachePruning.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Target/TargetOptions.h"
@@ -31,6 +32,23 @@ class StringRef;
 class LLVMContext;
 class TargetMachine;
 
+/// Wrapper around MemoryBufferRef, owning the identifier
+class ThinLTOBuffer {
+  std::string OwnedIdentifier;
+  StringRef Buffer;
+
+public:
+  ThinLTOBuffer(StringRef Buffer, StringRef Identifier)
+      : OwnedIdentifier(Identifier), Buffer(Buffer) {}
+
+  MemoryBufferRef getMemBuffer() const {
+    return MemoryBufferRef(Buffer,
+                           {OwnedIdentifier.c_str(), OwnedIdentifier.size()});
+  }
+  StringRef getBuffer() const { return Buffer; }
+  StringRef getBufferIdentifier() const { return OwnedIdentifier; }
+};
+
 /// Helper to gather options relevant to the target machine creation
 struct TargetMachineBuilder {
   Triple TheTriple;
@@ -38,7 +56,7 @@ struct TargetMachineBuilder {
   std::string MAttr;
   TargetOptions Options;
   Optional<Reloc::Model> RelocModel;
-  CodeGenOpt::Level CGOptLevel = CodeGenOpt::Default;
+  CodeGenOpt::Level CGOptLevel = CodeGenOpt::Aggressive;
 
   std::unique_ptr<TargetMachine> create() const;
 };
@@ -123,27 +141,29 @@ public:
 
   struct CachingOptions {
     std::string Path;                    // Path to the cache, empty to disable.
-    int PruningInterval = 1200;          // seconds, -1 to disable pruning.
-    unsigned int Expiration = 7 * 24 * 3600;     // seconds (1w default).
-    unsigned MaxPercentageOfAvailableSpace = 75; // percentage.
+    CachePruningPolicy Policy;
   };
 
   /// Provide a path to a directory where to store the cached files for
   /// incremental build.
   void setCacheDir(std::string Path) { CacheOptions.Path = std::move(Path); }
 
-  /// Cache policy: interval (seconds) between two prune of the cache. Set to a
-  /// negative value (default) to disable pruning. A value of 0 will be ignored.
+  /// Cache policy: interval (seconds) between two prunes of the cache. Set to a
+  /// negative value to disable pruning. A value of 0 will be ignored.
   void setCachePruningInterval(int Interval) {
-    if (Interval)
-      CacheOptions.PruningInterval = Interval;
+    if (Interval == 0)
+      return;
+    if(Interval < 0)
+      CacheOptions.Policy.Interval.reset();
+    else
+      CacheOptions.Policy.Interval = std::chrono::seconds(Interval);
   }
 
   /// Cache policy: expiration (in seconds) for an entry.
   /// A value of 0 will be ignored.
   void setCacheEntryExpiration(unsigned Expiration) {
     if (Expiration)
-      CacheOptions.Expiration = Expiration;
+      CacheOptions.Policy.Expiration = std::chrono::seconds(Expiration);
   }
 
   /**
@@ -161,7 +181,7 @@ public:
    */
   void setMaxCacheSizeRelativeToAvailableSpace(unsigned Percentage) {
     if (Percentage)
-      CacheOptions.MaxPercentageOfAvailableSpace = Percentage;
+      CacheOptions.Policy.MaxSizePercentageOfAvailableSpace = Percentage;
   }
 
   /**@}*/
@@ -189,6 +209,10 @@ public:
     TMBuilder.Options = std::move(Options);
   }
 
+  /// Enable the Freestanding mode: indicate that the optimizer should not
+  /// assume builtins are present on the target.
+  void setFreestanding(bool Enabled) { Freestanding = Enabled; }
+
   /// CodeModel
   void setCodePICModel(Optional<Reloc::Model> Model) {
     TMBuilder.RelocModel = Model;
@@ -197,6 +221,11 @@ public:
   /// CodeGen optimization level
   void setCodeGenOptLevel(CodeGenOpt::Level CGOptLevel) {
     TMBuilder.CGOptLevel = CGOptLevel;
+  }
+
+  /// IR optimization level: from 0 to 3.
+  void setOptLevel(unsigned NewOptLevel) {
+    OptLevel = (NewOptLevel > 3) ? 3 : NewOptLevel;
   }
 
   /// Disable CodeGen, only run the stages till codegen and stop. The output
@@ -275,7 +304,7 @@ private:
 
   /// Vector holding the input buffers containing the bitcode modules to
   /// process.
-  std::vector<MemoryBufferRef> Modules;
+  std::vector<ThinLTOBuffer> Modules;
 
   /// Set of symbols that need to be preserved outside of the set of bitcode
   /// files.
@@ -300,6 +329,13 @@ private:
   /// Flag to indicate that only the CodeGen will be performed, no cross-module
   /// importing or optimization.
   bool CodeGenOnly = false;
+
+  /// Flag to indicate that the optimizer should not assume builtins are present
+  /// on the target.
+  bool Freestanding = false;
+
+  /// IR Optimization Level [0-3].
+  unsigned OptLevel = 3;
 };
 }
 #endif
