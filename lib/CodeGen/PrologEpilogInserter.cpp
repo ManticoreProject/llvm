@@ -965,9 +965,9 @@ void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
   const TargetFrameLowering &TFI = *Fn.getSubtarget().getFrameLowering();
 
   // Emit prologue/epilogue for Manticore's contiguous stacks.
-  const Function* Func = Fn.getFunction();
-  bool MantiContig = Func->hasFnAttribute("manti-contig");
-  bool MantiSegStack = Func->hasFnAttribute("manti-segstack");
+  const Function& Func = Fn.getFunction();
+  bool MantiContig = Func.hasFnAttribute("manti-contig");
+  bool MantiSegStack = Func.hasFnAttribute("manti-segstack");
 
   if (MantiContig || MantiSegStack) {
     int numSaveBlocks = 0;
@@ -977,7 +977,7 @@ void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
 
       if (MantiSegStack) {
         APInt offset;
-        Attribute SegAttr = Func->getFnAttribute("manti-segstack");
+        Attribute SegAttr = Func.getFnAttribute("manti-segstack");
         bool failure = SegAttr.getValueAsString().getAsInteger(0, offset);
 
         assert((!failure) && "manti-segstack attribute requires an unsigned integer argument!");
