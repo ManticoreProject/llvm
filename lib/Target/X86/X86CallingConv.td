@@ -422,42 +422,33 @@ def CC_X86_64_JWA : CallingConv<[
   // Promote i8/i16/i32 arguments to i64.
   CCIfType<[i8, i16, i32], CCPromoteToType<i64>>,
 
-  // The only registers we skip are RBP and RSP.
-  
-  // NOTE(kavon): alloc, vproc, clos, retk, exh, stdArg, otherArgs
+  // RSP = stack pointer
+  // RBP = frame pointer
+  // RBX, RCX, RDX = temporary.
   
   CCIfType<[i64],
-  CCAssignToReg<[RSI, R11, RDI, R8, R9, RAX, 
-                 RDX, RCX, R10, RBX]>>,
+  CCAssignToReg<[RSI, // allocation pointer
+                 R11, // vproc pointer
+                 RDI, // environment pointer (an arg)
+                 R8,  // return continuation (an arg)
+                 R9,  // exception handler continuation (an arg)
+                 RAX, // 1st user-argument register
+                 // other user-argument registers, in order.
+                 R10,
+                 R12,
+                 R13,
+                 R14,
+                 R15
+                 ]>>,
 
 
   // TODO(kavon): check if something breaks if the target
   // does not support SSE registers? should add a check for that.
 
-  // Use as many vector registers as possible!
+  // Enable 6 vector registers.
   CCIfType<[f32, f64, v16i8, v8i16, v4i32, v2i64, v4f32, v2f64],
-           CCAssignToReg<[XMM0, XMM1, XMM2, XMM3, 
-                          XMM4, XMM5, XMM6, XMM7,
-                          XMM8, XMM9, XMM10, XMM11,
-                          XMM12, XMM13, XMM14, XMM15]>>,
-
-  // 256-bit vectors registers
-  CCIfType<[f32, f64, v32i8, v16i16, v8i32, v4i64, v8f32, v4f64],
-           CCAssignToReg<[YMM0, YMM1, YMM2, YMM3, 
-                          YMM4, YMM5, YMM6, YMM7,
-                          YMM8, YMM9, YMM10, YMM11,
-                          YMM12, YMM13, YMM14, YMM15]>>,
-
-  // 512-bit vector registers
-  CCIfType<[f32, f64, v64i8, v32i16, v16i32, v8i64, v16f32, v8f64],
-           CCAssignToReg<[ZMM0, ZMM1, ZMM2, ZMM3, 
-                          ZMM4, ZMM5, ZMM6, ZMM7,
-                          ZMM8, ZMM9, ZMM10, ZMM11,
-                          ZMM12, ZMM13, ZMM14, ZMM15,
-                          ZMM16, ZMM17, ZMM18, ZMM19,
-                          ZMM20, ZMM21, ZMM22, ZMM23,
-                          ZMM24, ZMM25, ZMM26, ZMM27,
-                          ZMM28, ZMM29, ZMM30, ZMM31]>>,
+           CCAssignToReg<[XMM2, XMM3, 
+                          XMM4, XMM5, XMM6, XMM7]>>,
 
 // TODO(kavon): add an assertion failure saying that we couldn't find
 // enough registers for everything, and that you should reconsider
