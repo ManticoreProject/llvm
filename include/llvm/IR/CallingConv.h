@@ -228,6 +228,12 @@ namespace CallingConv {
     /// jumps because they are picky about parameters.
     JWA = 97,
 
+    /// C_Shim is a calling convention used by Manticore to access non-variadic
+    /// C functions when using a mutable, linked frame call stack in its RTS.
+    /// It is used to switch to a contiguous, page-protected stack
+    /// in order to service the C call.
+    C_SHIM = 98,
+
     /// The highest possible calling convention ID. Must be some 2^k - 1.
     MaxID = 1023
   };

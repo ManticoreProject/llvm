@@ -628,6 +628,19 @@ def CC_X86_64_HHVM_C : CallingConv<[
   CCDelegateTo<CC_X86_64_C>
 ]>;
 
+// A very simple calling convention to enable stack
+// switching when making a C call.
+def CC_X86_64_C_SHIM : CallingConv<[
+
+  // First two 64-bit arguments go in R11 and R10
+  CCIfType<[i64],
+          CCAssignToReg<[R11, R10]>>,
+
+  // Then, drop to regular SysV calling convention
+  // for everything else.
+  CCDelegateTo<CC_X86_64_C>
+]>;
+
 // Calling convention used on Win64
 def CC_X86_Win64_C : CallingConv<[
   // FIXME: Handle byval stuff.
@@ -1054,6 +1067,7 @@ def CC_X86_64 : CallingConv<[
   CCIfCC<"CallingConv::HiPE", CCDelegateTo<CC_X86_64_HiPE>>,
   CCIfCC<"CallingConv::WebKit_JS", CCDelegateTo<CC_X86_64_WebKit_JS>>,
   CCIfCC<"CallingConv::JWA", CCDelegateTo<CC_X86_64_JWA>>,
+  CCIfCC<"CallingConv::C_SHIM", CCDelegateTo<CC_X86_64_C_SHIM>>,
   CCIfCC<"CallingConv::AnyReg", CCDelegateTo<CC_X86_64_AnyReg>>,
   CCIfCC<"CallingConv::Win64", CCDelegateTo<CC_X86_Win64_C>>,
   CCIfCC<"CallingConv::X86_64_SysV", CCDelegateTo<CC_X86_64_C>>,
