@@ -39,6 +39,7 @@ define x86_64_sysvcc float @test2(i64* %vp, float %x, float %y) {
 ;; we exclude any movement of xmm registers before
 ;; the call with this sequence of check-next's
 
+; CHECK-LABEL: test2
 ; CHECK:        pushq   %rax
 ; CHECK-NEXT:   .cfi_def_cfa_offset 16
 ; CHECK-NEXT:   movq    _func2@GOTPCREL(%rip), %r10
