@@ -964,26 +964,28 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
 void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
   const TargetFrameLowering &TFI = *Fn.getSubtarget().getFrameLowering();
 
-  // Emit prologue/epilogue for Manticore's contiguous stacks.
+  // Emit prologue/epilogue for Manticore's various stack strategies.
   const Function& Func = Fn.getFunction();
   bool MantiContig = Func.hasFnAttribute("manti-contig");
   bool MantiSegStack = Func.hasFnAttribute("manti-segstack");
+  bool MantiLinkStack = Func.hasFnAttribute("manti-linkstack");
 
-  if (MantiContig || MantiSegStack) {
+  if (MantiContig || MantiSegStack || MantiLinkStack) {
     int numSaveBlocks = 0;
     for (MachineBasicBlock *SaveBlock : SaveBlocks) {
-      // emit standard contiguous stack prologue
-      TFI.emitMantiContigPrologue(Fn, *SaveBlock, MantiSegStack);
+      if (MantiLinkStack) {
 
-      if (MantiSegStack) {
-        APInt offset;
-        Attribute SegAttr = Func.getFnAttribute("manti-segstack");
-        bool failure = SegAttr.getValueAsString().getAsInteger(0, offset);
+        TFI.emitMantiLinkedPrologue(Fn, *SaveBlock);
 
-        assert((!failure) && "manti-segstack attribute requires an unsigned integer argument!");
+      } else {
+        // emit standard contiguous stack prologue
+        TFI.emitMantiContigPrologue(Fn, *SaveBlock, MantiSegStack);
 
-        // adjust the prologue for a segmented stack
-        TFI.adjustForMantiSegStack(Fn, *SaveBlock, offset.getZExtValue());
+        if (MantiSegStack) {
+          
+          // adjust the contiguous prologue for a segmented stack
+          TFI.adjustForMantiSegStack(Fn, *SaveBlock);
+        }
       }
 
       numSaveBlocks++;

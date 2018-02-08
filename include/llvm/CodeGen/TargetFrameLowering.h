@@ -184,14 +184,17 @@ public:
                                      MachineBasicBlock &PrologueMBB,
                                      bool IncludeSize) const {}
 
+    /// Emit a prologue for Manticore linked stacks.
+  virtual void emitMantiLinkedPrologue(MachineFunction &MF,
+                                     MachineBasicBlock &PrologueMBB) const {}
+
   /// Emit an epilog for Manticore contiguous stacks.
   virtual void emitMantiContigEpilog(MachineFunction &MF,
-                                     MachineBasicBlock &PrologueMBB) const {}
+                                     MachineBasicBlock &EpilogMBB) const {}
 
   /// Emit a prologue for Manticore segmented stacks.
   virtual void adjustForMantiSegStack(MachineFunction &MF,
-                                     MachineBasicBlock &PrologueMBB,
-                                     uint64_t LimitOffset) const {}
+                                     MachineBasicBlock &PrologueMBB) const {}
 
   /// spillCalleeSavedRegisters - Issues instruction(s) to spill all callee
   /// saved registers and returns true if it isn't possible / profitable to do

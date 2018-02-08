@@ -2557,6 +2557,13 @@ void X86FrameLowering::adjustForHiPEPrologue(
 #endif
 }
 
+void X86FrameLowering::emitMantiLinkedPrologue(
+    MachineFunction &MF, MachineBasicBlock &MBB) const {
+
+  assert(false && "implement me!");
+
+}
+
 void X86FrameLowering::emitMantiContigPrologue(
     MachineFunction &MF, MachineBasicBlock &MBB, bool IncludeSize) const {
 
@@ -2711,10 +2718,21 @@ void X86FrameLowering::emitMantiContigEpilog(
 }
 
 void X86FrameLowering::adjustForMantiSegStack(
-    MachineFunction &MF, MachineBasicBlock &PrologueMBB, uint64_t LimVPOffset) const {
+    MachineFunction &MF, MachineBasicBlock &PrologueMBB) const {
 
   // this adjustment is conceptually the same as adjustForSegmentedStacks,
   // however, it is customized for Manticore's runtime-system.
+
+  // grab the stack limit offset
+  const Function& Func = MF.getFunction();
+  APInt offset;
+  bool failure = Func.getFnAttribute("manti-segstack")
+                   .getValueAsString().getAsInteger(0, offset);
+
+  assert((!failure) && "manti-segstack attribute requires an unsigned integer argument!");
+
+  uint64_t LimVPOffset = offset.getZExtValue();
+
 
   DebugLoc DL;
   MachineFrameInfo &MFI = MF.getFrameInfo();

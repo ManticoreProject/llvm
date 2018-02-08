@@ -78,12 +78,14 @@ public:
                              MachineBasicBlock &PrologueMBB,
                              bool IncludeSize) const override;
 
-  void emitMantiContigEpilog(MachineFunction &MF,
+  void emitMantiLinkedPrologue(MachineFunction &MF,
                              MachineBasicBlock &PrologueMBB) const override;
 
+  void emitMantiContigEpilog(MachineFunction &MF,
+                             MachineBasicBlock &EpilogMBB) const override;
+
   void adjustForMantiSegStack(MachineFunction &MF,
-                             MachineBasicBlock &PrologueMBB,
-                             uint64_t LimitOffset) const override;
+                             MachineBasicBlock &PrologueMBB) const override;
 
   void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
                             RegScavenger *RS = nullptr) const override;
