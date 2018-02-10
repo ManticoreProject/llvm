@@ -2558,27 +2558,193 @@ void X86FrameLowering::adjustForHiPEPrologue(
 }
 
 void X86FrameLowering::emitMantiLinkedPrologue(
-    MachineFunction &MF, MachineBasicBlock &MBB) const {
+    MachineFunction &MF, MachineBasicBlock &BodyMBB) const {
   
   // pre-conditions
-  assert(&(*MF.begin()) == &MBB && "Shrink-wrapping not supported yet");
+  assert(&(*MF.begin()) == &BodyMBB && "Shrink-wrapping not supported yet");
   assert(Is64Bit && "Manti-linkstack is only supported under 64 bit.");
   
   // NB: without frame pointer elimination, the frame acccess is based on
   // rbp instead of rsp. This is okay if stacks are contiguous, but ours
   // is not... rbp points to the _caller's_ frame because it's cheaper
   // to free rbp by pushing it onto their frame.
+  // It may be easy to change which register is used as the base, but
+  // I'd prefer knowing that no assumptions have been made about
+  // the frame pointer, so that I can make my own constraints. ~kavon
   assert(hasFP(MF) == false && "Frame-pointer elimination is required.");
   
+  // get info
+  DebugLoc DL;    // debug loc is unknown
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
+  
+  uint64_t StackAlign = getStackAlignment();
+  uint64_t OldStackSize = MFI.getStackSize();    // Number of bytes to allocate.
+  uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
+  uint64_t SlotSize = 8;
+  uint64_t WatermarkSize = SlotSize;
+  uint64_t InitialOffset = SlotSize;  // from return address we're passed.
+  uint64_t StackBump;
+  uint64_t StackSize = OldStackSize;
+  
+  unsigned VProcReg = X86::R11;
+  unsigned AllocPtrReg = X86::RSI;
+  unsigned FrameLinkReg = X86::RBP;
+  
+  assert(StackAlign == 16 && "alignment doesn't match ABI expectations");
+  
+  ///////////////////////////////
+  
+  // compute frame size for the basic, non-leaf case.
+  
+  // compute the minimum bump for all but CSRs
+  StackBump = (StackSize - CalleeSaveSize) + SlotSize + WatermarkSize;
+  
+  // add alignment to the bump, including CSRs and the initial SP alignment
+  // in the calculation. this is the final bump point.
+  StackBump += (StackBump + CalleeSaveSize + InitialOffset) % StackAlign;
+  
+  StackSize = StackBump + CalleeSaveSize;
+  
+  assert(CalleeSaveSize == 0 && "shouldn't be any callee saves!");
+  
+  ////////////////////////////////
+  
+  ////////
+  // setup new blocks
+  ////////
+  
+  MachineBasicBlock *CheckMBB = MF.CreateMachineBasicBlock();
+  MachineBasicBlock *OverflowMBB = MF.CreateMachineBasicBlock();
+  
+  
+  
+  for (const auto &LI : BodyMBB.liveins()) {
+    CheckMBB->addLiveIn(LI);
+    // OverflowMBB->addLiveIn(LI);
+  }
+  
+  MF.push_front(CheckMBB);
+  CheckMBB->moveBefore(&BodyMBB);
+  MF.push_back(OverflowMBB); // this block is cold, so we push onto the end.
+  
+  CheckMBB->addSuccessor(&BodyMBB, {99, 100});  // N/M probability
+  CheckMBB->addSuccessor(OverflowMBB, {1, 100});
+  
+  
+  ////////
+  // setup link pointers
+  ////////
+  
+  MachineBasicBlock::iterator CheckMBBI = CheckMBB->begin();
+  
+  // save caller's link pointer to their frame
+  BuildMI(*CheckMBB, CheckMBBI, DL, TII.get(X86::PUSH64r))
+    .addReg(FrameLinkReg)
+    .setMIFlag(MachineInstr::FrameSetup);
+  
+  // setup our own link pointer.
+  BuildMI(*CheckMBB, CheckMBBI, DL, TII.get(X86::MOV64rr), FrameLinkReg)
+    .addReg(X86::RSP)
+    .setMIFlag(MachineInstr::FrameSetup);
+  
+  ///////
+  // test for heap exhaustion
+  //////
+  
+  uint64_t HPLimitOffset = 123; // TODO: get this from the attribute
+  uint64_t GCTag = 456;
+  
+  addRegOffset(
+    BuildMI(*CheckMBB, CheckMBBI, DL, TII.get(X86::CMP64rm)).addReg(AllocPtrReg),
+               VProcReg, false, HPLimitOffset)
+  .setMIFlag(MachineInstr::FrameSetup);
+  
+  // control falls-through to BodyMBB if the heap is not exhausted
+  BuildMI(*CheckMBB, CheckMBBI, DL, TII.get(X86::JGE_1))
+    .addMBB(OverflowMBB)
+    .setMIFlag(MachineInstr::FrameSetup);
+  
+  
+  ////////
+  // allocate & initialize the frame in the Body
+  ////////
+
+  MachineBasicBlock::iterator BodyMBBI = BodyMBB.begin();
+  
+  // set rsp
+  int64_t SPStartOffset = 16;
+  addRegOffset(
+    BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::LEA64r), X86::RSP),
+    AllocPtrReg, false, SPStartOffset)
+  .setMIFlag(MachineInstr::FrameSetup);
+
+  // write GC header and watermark to the frame
+  int64_t HeaderOffset = -8;
+  addRegOffset(BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::MOV64mi32)),
+               AllocPtrReg, false, HeaderOffset)
+  .addImm(GCTag)
+  .setMIFlag(MachineInstr::FrameSetup);
+  
+  int64_t WatermarkOffset = 16;
+  addRegOffset(BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::MOV64mi32)),
+               AllocPtrReg, false, WatermarkOffset)
+  .addImm(0)
+  .setMIFlag(MachineInstr::FrameSetup);
+  
+  // bump heap pointer
+  BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::ADD64ri32), AllocPtrReg)
+    .addReg(AllocPtrReg)
+    .addImm(StackBump + 8)
+  .setMIFlag(MachineInstr::FrameSetup);
+  
+  
+  ////////
+  // generate a heap check
+  ////////
+  
+  MachineBasicBlock::iterator OverflowMBBI = OverflowMBB->begin();
+  
+  // TODO: implement this, probably in its own function!
+  
+  // TEMPORARY
+  BuildMI(*OverflowMBB, OverflowMBBI, DL, TII.get(X86::UD2B));
+  BuildMI(*OverflowMBB, OverflowMBBI, DL, TII.get(X86::JMP_1))
+    .addMBB(&BodyMBB);
+  OverflowMBB->addSuccessor(&BodyMBB);
+  
+  
+  
+  if (StackSize != OldStackSize) {
+    // set final stack size for correct stackmap emission
+    MFI.setStackSize(StackSize);
+    
+    // after setting the stack size, the offsets for all stack objects
+    // shifts up to the top for some reason, so we need to pull them back
+    // down to avoid overwriting the return address or CSR
+    
+    // Loop to process fixed stack objects:
+    // for (int I = MFI.getObjectIndexBegin(); I < 0; ++I) {
+    
+    // Process ordinary stack objects.
+    for (int I = 0, E = MFI.getObjectIndexEnd(); I < E; ++I) {
+      if (MFI.isDeadObjectIndex(I))
+        continue;
+      
+      int64_t offset = MFI.getObjectOffset(I);
+      offset -= InitialOffset;
+      MFI.setObjectOffset(I, offset);
+    }
+  }
   
   MF.dump();
   
   
   
 
-#ifdef EXPENSIVE_CHECKS
+//#ifdef EXPENSIVE_CHECKS
   MF.verify();
-#endif
+//#endif
 }
 
 void X86FrameLowering::emitMantiContigPrologue(
