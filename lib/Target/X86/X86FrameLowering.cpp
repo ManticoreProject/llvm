@@ -2964,7 +2964,7 @@ void X86FrameLowering::adjustForMantiSegStack(
   if (StackSize < Slop) {
     
     addRegOffset(
-      BuildMI(checkMBB, DL, TII.get(X86::CMP64rm), X86::RSP),
+      BuildMI(checkMBB, DL, TII.get(X86::CMP64rm)).addReg(X86::RSP),
       VProcReg, false, LimVPOffset);
 
     BuildMI(checkMBB, DL, TII.get(X86::JLE_1)).addMBB(allocMBB);
