@@ -2559,9 +2559,26 @@ void X86FrameLowering::adjustForHiPEPrologue(
 
 void X86FrameLowering::emitMantiLinkedPrologue(
     MachineFunction &MF, MachineBasicBlock &MBB) const {
+  
+  // pre-conditions
+  assert(&(*MF.begin()) == &MBB && "Shrink-wrapping not supported yet");
+  assert(Is64Bit && "Manti-linkstack is only supported under 64 bit.");
+  
+  // NB: without frame pointer elimination, the frame acccess is based on
+  // rbp instead of rsp. This is okay if stacks are contiguous, but ours
+  // is not... rbp points to the _caller's_ frame because it's cheaper
+  // to free rbp by pushing it onto their frame.
+  assert(hasFP(MF) == false && "Frame-pointer elimination is required.");
+  
+  
+  MF.dump();
+  
+  
+  
 
-  assert(false && "implement me!");
-
+#ifdef EXPENSIVE_CHECKS
+  MF.verify();
+#endif
 }
 
 void X86FrameLowering::emitMantiContigPrologue(
@@ -2617,8 +2634,8 @@ void X86FrameLowering::emitMantiContigPrologue(
     // compute the minimum bump for all but CSRs
     StackBump = (StackSize - CalleeSaveSize) + SlotSize + WatermarkSize;  
 
-    // add alignment to the bump, including CSRs and the initial SP alignment in the calculation.
-    // this is the final bump point.
+    // add alignment to the bump, including CSRs and the initial SP alignment
+    // in the calculation. this is the final bump point.
     StackBump += (StackBump + CalleeSaveSize + InitialOffset) % StackAlign;
 
     StackSize = StackBump + CalleeSaveSize;
