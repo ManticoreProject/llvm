@@ -515,7 +515,7 @@ BitVector X86RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
     Reserved.set(*I);
 
   // Set the frame-pointer register and its aliases as reserved if needed.
-  if (TFI->hasFP(MF)) {
+  if (TFI->hasFP(MF) || MF.getFunction().hasFnAttribute("manti-linkstack")) {
     for (MCSubRegIterator I(X86::RBP, this, /*IncludeSelf=*/true); I.isValid();
          ++I)
       Reserved.set(*I);
