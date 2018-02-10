@@ -2951,43 +2951,31 @@ void X86FrameLowering::adjustForMantiSegStack(
   //    jle    allocMBB
   //  ]
   //  else [  fall-through to PrologueMBB if rsp > (limit + StackSize)
-  //    movq  LimOffset(VProcReg), Scratch
-  //    addq  $StackSize, Scratch
-  //    cmpq  Scratch, %rsp
+  //    leaq  -$StackSize(%rsp), Scratch
+  //    cmpq  LimOffset(VProcReg), Scratch
   //    jle   allocMBB
   //  ]
   //    
 
   unsigned VProcReg = X86::R11;
-  unsigned Scratch = X86::RBX;
+  unsigned Comparee = X86::RSP;
 
-  if (StackSize < Slop) {
+  if (StackSize >= Slop) {
+    unsigned Scratch = X86::RBX;
     
     addRegOffset(
-      BuildMI(checkMBB, DL, TII.get(X86::CMP64rm)).addReg(X86::RSP),
-      VProcReg, false, LimVPOffset);
-
-    BuildMI(checkMBB, DL, TII.get(X86::JLE_1)).addMBB(allocMBB);
-
-  } else {
-
-    addRegOffset(
-      BuildMI(checkMBB, DL, TII.get(X86::MOV64rm), Scratch),
-      VProcReg, false, LimVPOffset);
-
-    BuildMI(checkMBB, DL, TII.get(X86::ADD64ri32), Scratch)
-      .addReg(Scratch)
-      .addImm(StackSize)
-      ;
-
-    BuildMI(checkMBB, DL, TII.get(X86::CMP64rr))
-      .addReg(X86::RSP)
-      .addReg(Scratch)
-      ;
-
-    BuildMI(checkMBB, DL, TII.get(X86::JLE_1)).addMBB(allocMBB);
-
+      BuildMI(checkMBB, DL, TII.get(X86::LEA64r), Scratch),
+        X86::RSP, false, -((int64_t)StackSize));
+    
+    Comparee = Scratch;
   }
+  
+  addRegOffset(
+    BuildMI(checkMBB, DL, TII.get(X86::CMP64rm)).addReg(Comparee),
+    VProcReg, false, LimVPOffset);
+  
+  BuildMI(checkMBB, DL, TII.get(X86::JLE_1)).addMBB(allocMBB);
+  
 
   // otherwise, we jump to allocMBB, which just calls the RTS handler
   // and then resumes at PrologueMBB
