@@ -2912,9 +2912,10 @@ void X86FrameLowering::adjustForMantiSegStack(
   bool failure = Func.getFnAttribute("manti-segstack")
                    .getValueAsString().getAsInteger(0, offset);
 
-  assert((!failure) && "manti-segstack attribute requires an unsigned integer argument!");
+  assert((!failure) &&
+         "manti-segstack attribute requires an unsigned integer argument!");
 
-  uint64_t LimVPOffset = offset.getZExtValue();
+  int64_t LimVPOffset = offset.getSExtValue();
 
 
   DebugLoc DL;
@@ -2936,24 +2937,29 @@ void X86FrameLowering::adjustForMantiSegStack(
     checkMBB->addLiveIn(LI);
   }
 
-  MF.push_front(allocMBB);
   MF.push_front(checkMBB);
+  MF.push_back(allocMBB);
+  
+  allocMBB->addSuccessor(&PrologueMBB);
+  
+  checkMBB->addSuccessor(allocMBB, {1, 100});
+  checkMBB->addSuccessor(&PrologueMBB, {99, 100});
 
   // checkMBB:
-  // if StackSize < slop [  jump to PrologueMBB if limit < rsp
+  // if StackSize < slop [  fall-through to PrologueMBB rsp > limit
   //    cmpq  LimOffset(VProcReg), %rsp
-  //    jge    PrologueMBB
+  //    jle    allocMBB
   //  ]
-  //  else [  jump to PrologueMBB if (limit + StackSize) < rsp
+  //  else [  fall-through to PrologueMBB if rsp > (limit + StackSize)
   //    movq  LimOffset(VProcReg), Scratch
   //    addq  $StackSize, Scratch
   //    cmpq  Scratch, %rsp
-  //    jge   PrologueMBB
+  //    jle   allocMBB
   //  ]
   //    
 
   unsigned VProcReg = X86::R11;
-  unsigned Scratch = X86::RBP;
+  unsigned Scratch = X86::RBX;
 
   if (StackSize < Slop) {
     
@@ -2961,7 +2967,7 @@ void X86FrameLowering::adjustForMantiSegStack(
       BuildMI(checkMBB, DL, TII.get(X86::CMP64rm), X86::RSP),
       VProcReg, false, LimVPOffset);
 
-    BuildMI(checkMBB, DL, TII.get(X86::JGE_1)).addMBB(&PrologueMBB);
+    BuildMI(checkMBB, DL, TII.get(X86::JLE_1)).addMBB(allocMBB);
 
   } else {
 
@@ -2979,45 +2985,22 @@ void X86FrameLowering::adjustForMantiSegStack(
       .addReg(Scratch)
       ;
 
-    BuildMI(checkMBB, DL, TII.get(X86::JGE_1)).addMBB(&PrologueMBB);
+    BuildMI(checkMBB, DL, TII.get(X86::JLE_1)).addMBB(allocMBB);
 
   }
 
-  // otherwise, checkMBB falls through to allocMBB
+  // otherwise, we jump to allocMBB, which just calls the RTS handler
+  // and then resumes at PrologueMBB
   //==================================================
+
+  // TODO: does this symbol name work on both macOS and Linux?
   
-
-
-  // allocMBB just calls our RTS handler
-
-  // TODO: maybe we need to pass the function's address as an argument?
-  // reference code for doing that:
-  //
-  // leaq  __manti_growstack(%rip), Scratch
-  // BuildMI(allocMBB, DL, TII.get(X86::LEA64r))
-  //   .addReg(Scratch, false)
-  //   .addReg(X86::RIP, false)
-  //   .addImm(1)
-  //   .addReg(0)
-  //   .addExternalSymbol("__manti_growstack")
-  //   .addReg(0);
-
   BuildMI(allocMBB, DL, TII.get(X86::CALL64pcrel32))
         .addExternalSymbol("__manti_growstack");
+  
+  BuildMI(allocMBB, DL, TII.get(X86::JMP_1)).addMBB(&PrologueMBB);
 
   //==================================================
-
-
-
-  // TODO if it helps, maybe add probabilities to these successor edges?
-  allocMBB->addSuccessor(&PrologueMBB);
-
-  checkMBB->addSuccessor(allocMBB);
-  checkMBB->addSuccessor(&PrologueMBB);
-
-
-
-  // MF.dump();
 
 
 #ifdef EXPENSIVE_CHECKS
