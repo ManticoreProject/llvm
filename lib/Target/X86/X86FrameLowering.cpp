@@ -2573,6 +2573,23 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   // the frame pointer, so that I can make my own constraints. ~kavon
   assert(hasFP(MF) == false && "Frame-pointer elimination is required.");
   
+  // grab the heap limit offset, and GC tag, from the attribute.
+  const Function& Func = MF.getFunction();
+  APInt limitOffset;
+  APInt tagVal;
+  
+  StringRef Attr = Func.getFnAttribute("manti-linkstack").getValueAsString();
+  auto Vals = Attr.split(',');
+  
+  if (Vals.second == ""
+      || Vals.first.getAsInteger(0, limitOffset)
+      || Vals.second.getAsInteger(0, tagVal))
+    llvm_unreachable(
+      "manti-linkstack requires two comma-separated ints: limit, gc tag");
+  
+  int64_t HPLimitOffset = limitOffset.getSExtValue();
+  int64_t GCTag = tagVal.getSExtValue();
+  
   // get info
   DebugLoc DL;    // debug loc is unknown
   MachineFrameInfo &MFI = MF.getFrameInfo();
@@ -2651,9 +2668,6 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   ///////
   // test for heap exhaustion
   //////
-  
-  uint64_t HPLimitOffset = 123; // TODO: get this from the attribute
-  uint64_t GCTag = 456;
   
   addRegOffset(
     BuildMI(*CheckMBB, CheckMBBI, DL, TII.get(X86::CMP64rm)).addReg(AllocPtrReg),
@@ -2913,7 +2927,7 @@ void X86FrameLowering::adjustForMantiSegStack(
                    .getValueAsString().getAsInteger(0, offset);
 
   assert((!failure) &&
-         "manti-segstack attribute requires an unsigned integer argument!");
+         "manti-segstack attribute requires a signed integer argument!");
 
   int64_t LimVPOffset = offset.getSExtValue();
 
