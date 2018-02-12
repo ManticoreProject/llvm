@@ -223,6 +223,10 @@ private:
   void emitCatchRetReturnValue(MachineBasicBlock &MBB,
                                MachineBasicBlock::iterator MBBI,
                                MachineInstr *CatchRet) const;
+  
+  void emitMantiSafepoint(MachineBasicBlock *MBB,
+                          MachineBasicBlock *After,
+                          int64_t RootTag) const;
 };
 
 } // End llvm namespace

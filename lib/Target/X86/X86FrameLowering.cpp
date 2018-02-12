@@ -2557,6 +2557,22 @@ void X86FrameLowering::adjustForHiPEPrologue(
 #endif
 }
 
+// Based on the live-ins of MBB, emits code that
+// safely invokes the garbage collector, and restores
+// the live-in registers before jumping to the After block.
+void X86FrameLowering::emitMantiSafepoint(
+    MachineBasicBlock *MBB, MachineBasicBlock *After, int64_t RootTag) const {
+  
+  DebugLoc DL;    // debug loc is unknown
+  
+  // TEMPORARY
+  BuildMI(MBB, DL, TII.get(X86::UD2B));
+  BuildMI(MBB, DL, TII.get(X86::JMP_1))
+  .addMBB(After);
+  
+  MBB->addSuccessor(After);
+}
+
 void X86FrameLowering::emitMantiLinkedPrologue(
     MachineFunction &MF, MachineBasicBlock &BodyMBB) const {
   
@@ -2631,52 +2647,56 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   // setup new blocks
   ////////
   
-  MachineBasicBlock *CheckMBB = MF.CreateMachineBasicBlock();
-  MachineBasicBlock *OverflowMBB = MF.CreateMachineBasicBlock();
-  
+  MachineBasicBlock *SetupMBB = MF.CreateMachineBasicBlock();
+  MachineBasicBlock *HeapChkMBB = MF.CreateMachineBasicBlock();
+  MachineBasicBlock *EnterGCMBB = MF.CreateMachineBasicBlock();
   
   
   for (const auto &LI : BodyMBB.liveins()) {
-    CheckMBB->addLiveIn(LI);
-    // OverflowMBB->addLiveIn(LI);
+    SetupMBB->addLiveIn(LI);
+    HeapChkMBB->addLiveIn(LI);
+    EnterGCMBB->addLiveIn(LI);
   }
   
-  MF.push_front(CheckMBB);
-  CheckMBB->moveBefore(&BodyMBB);
-  MF.push_back(OverflowMBB); // this block is cold, so we push onto the end.
+  MF.push_front(HeapChkMBB);
+  MF.push_front(SetupMBB);
+  HeapChkMBB->moveBefore(&BodyMBB);
+  SetupMBB->moveBefore(HeapChkMBB);
   
-  CheckMBB->addSuccessor(&BodyMBB, {99, 100});  // N/M probability
-  CheckMBB->addSuccessor(OverflowMBB, {1, 100});
+  MF.push_back(EnterGCMBB); // this block is cold, so we push onto the end.
+  
+  SetupMBB->addSuccessor(HeapChkMBB);
+  
+  HeapChkMBB->addSuccessor(&BodyMBB, {99, 100});  // N/M probability
+  HeapChkMBB->addSuccessor(EnterGCMBB, {1, 100});
   
   
   ////////
   // setup link pointers
   ////////
   
-  MachineBasicBlock::iterator CheckMBBI = CheckMBB->begin();
-  
   // save caller's link pointer to their frame
-  BuildMI(*CheckMBB, CheckMBBI, DL, TII.get(X86::PUSH64r))
+  BuildMI(SetupMBB, DL, TII.get(X86::PUSH64r))
     .addReg(FrameLinkReg)
     .setMIFlag(MachineInstr::FrameSetup);
   
   // setup our own link pointer.
-  BuildMI(*CheckMBB, CheckMBBI, DL, TII.get(X86::MOV64rr), FrameLinkReg)
+  BuildMI(SetupMBB, DL, TII.get(X86::MOV64rr), FrameLinkReg)
     .addReg(X86::RSP)
     .setMIFlag(MachineInstr::FrameSetup);
   
   ///////
-  // test for heap exhaustion
+  // check for heap exhaustion
   //////
   
   addRegOffset(
-    BuildMI(*CheckMBB, CheckMBBI, DL, TII.get(X86::CMP64rm)).addReg(AllocPtrReg),
+    BuildMI(HeapChkMBB, DL, TII.get(X86::CMP64rm)).addReg(AllocPtrReg),
                VProcReg, false, HPLimitOffset)
   .setMIFlag(MachineInstr::FrameSetup);
   
   // control falls-through to BodyMBB if the heap is not exhausted
-  BuildMI(*CheckMBB, CheckMBBI, DL, TII.get(X86::JGE_1))
-    .addMBB(OverflowMBB)
+  BuildMI(HeapChkMBB, DL, TII.get(X86::JGE_1))
+    .addMBB(EnterGCMBB)
     .setMIFlag(MachineInstr::FrameSetup);
   
   
@@ -2713,20 +2733,12 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   .setMIFlag(MachineInstr::FrameSetup);
   
   
-  ////////
-  // generate a heap check
-  ////////
+  //////////////////////////////////////////
+  //        generate a safepoint
+  //////////////////////////////////////////
   
-  MachineBasicBlock::iterator OverflowMBBI = OverflowMBB->begin();
-  
-  // TODO: implement this, probably in its own function!
-  
-  // TEMPORARY
-  BuildMI(*OverflowMBB, OverflowMBBI, DL, TII.get(X86::UD2B));
-  BuildMI(*OverflowMBB, OverflowMBBI, DL, TII.get(X86::JMP_1))
-    .addMBB(&BodyMBB);
-  OverflowMBB->addSuccessor(&BodyMBB);
-  
+  // TODO: get the Root Tuple tag from the front-end.
+  emitMantiSafepoint(EnterGCMBB, HeapChkMBB, 555);
   
   
   if (StackSize != OldStackSize) {
