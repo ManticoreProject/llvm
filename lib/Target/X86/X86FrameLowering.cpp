@@ -2558,19 +2558,127 @@ void X86FrameLowering::adjustForHiPEPrologue(
 }
 
 // Based on the live-ins of MBB, emits code that
-// safely invokes the garbage collector, and restores
-// the live-in registers before jumping to the After block.
-void X86FrameLowering::emitMantiSafepoint(
-    MachineBasicBlock *MBB, MachineBasicBlock *After, int64_t RootTag) const {
+// safely invokes the garbage collector, which will resume
+// execution at the After block.
+void X86FrameLowering::emitMantiSafepoint(MachineBasicBlock *MBB,
+    MachineBasicBlock *After, int64_t RootTag) const {
   
   DebugLoc DL;    // debug loc is unknown
   
-  // TEMPORARY
-  BuildMI(MBB, DL, TII.get(X86::UD2B));
+  MBB->sortUniqueLiveIns();
+  
+  // NB: order matters.
+  SmallVector<unsigned, 8> LiveRegs = {
+    X86::RDI, // env
+    X86::R9,  // exn
+    X86::RAX, X86::R10, X86::R12, X86::R13, X86::R14, X86::R15}; // arg regs
+  
+  // from Manticore's calling convention
+  unsigned AllocPtr = X86::RSI;
+  
+  unsigned RootPtrReg = X86::RBX;
+  
+  ////////
+  // allocate a tuple containing all of the roots
+  ////////
+  
+  int64_t Offset = -8;
+  
+  // write tuple's GC tag
+  addRegOffset(BuildMI(MBB, DL, TII.get(X86::MOV64mi32)),
+               AllocPtr, false, Offset)
+  .addImm(RootTag);
+  
+  // dump the live values in argument registers
+  for (unsigned Reg : LiveRegs) {
+    if (MBB->isLiveIn(Reg)) {
+      Offset += 8;
+      addRegOffset(BuildMI(MBB, DL, TII.get(X86::MOV64mr)),
+                   AllocPtr, false, Offset)
+      .addReg(Reg);
+    }
+  }
+  
+//  MCSymbol *Label = MBB->getParent()->getContext().createTempSymbol();
+//
+//  // load return address into a reg
+//  addOffset(
+//    BuildMI(MBB, DL, TII.get(X86::LEA64r), RetAddrReg).addReg(X86::RIP),
+//            MachineOperand::CreateMCSymbol(Label));
+  
+  // save tuple pointer
+  BuildMI(MBB, DL, TII.get(X86::MOV64rr), RootPtrReg)
+  .addReg(AllocPtr);
+  
+  // bump heap pointer
+  BuildMI(MBB, DL, TII.get(X86::ADD64ri32), AllocPtr)
+  .addReg(AllocPtr)
+  .addImm(Offset + 8);
+  
+  // because it's a gigantic pain to take the address of a MachineBasicBlock
+  // that has no corresponding BasicBlock, I've decided to just
+  // pass the return address in memory via 'call'.
+  //
+  // Since we currently have no stack space, we just use the heap pointer,
+  // since there's built-in extra space.
+  
+  // We clobber RSP since it's already saved in RBP.
+  BuildMI(MBB, DL, TII.get(X86::MOV64rr), X86::RSP)
+  .addReg(AllocPtr);
+  
+  /* temporary
+   Subtarget.getRegisterInfo()->getCallPreservedMask(*MF, CallingConv::C);
+   if (IsLP64) {
+   BuildMI(mallocMBB, DL, TII->get(X86::MOV64rr), X86::RDI)
+   .addReg(sizeVReg);
+   BuildMI(mallocMBB, DL, TII->get(X86::CALL64pcrel32))
+   .addExternalSymbol("__morestack_allocate_stack_space")
+   .addRegMask(RegMask)
+   .addReg(X86::RDI, RegState::Implicit)
+   .addReg(X86::RAX, RegState::ImplicitDefine);
+   */
+  
+  // TODO: get the right register mask.
+  
+//  auto RegMask = Subtarget.getRegisterInfo()->getCallPreservedMask(*MF, CallingConv::JWA);
+  
+  // invoke the GC.
+  BuildMI(MBB, DL, TII.get(X86::CALL64pcrel32))
+  .addExternalSymbol("_ASM_InvokeGC_Linked_LLVM")
+  
+  .addReg(X86::R11, RegState::Implicit)
+  .addReg(AllocPtr, RegState::Implicit)
+  .addReg(RootPtrReg, RegState::Implicit)
+  .addReg(X86::RBP, RegState::Implicit)
+  
+  .addReg(X86::R11, RegState::ImplicitDefine)
+  .addReg(AllocPtr, RegState::ImplicitDefine)
+  .addReg(RootPtrReg, RegState::ImplicitDefine)
+  .addReg(X86::RBP, RegState::ImplicitDefine)
+  ;
+  
+  
+  
+  ////////////////
+  // Reload live values from the tuple after GC
+  ////////////////
+  
+  // NB: tuple is returned in register here.
+  Offset = 0;
+  for (unsigned Reg : LiveRegs) {
+    if (MBB->isLiveIn(Reg)) {
+      addRegOffset(BuildMI(MBB, DL, TII.get(X86::MOV64rm), Reg),
+                   RootPtrReg, false, Offset);
+      Offset += 8;
+    }
+  }
+  
+  // jump to "after GC" block
   BuildMI(MBB, DL, TII.get(X86::JMP_1))
   .addMBB(After);
-  
+
   MBB->addSuccessor(After);
+
 }
 
 void X86FrameLowering::emitMantiLinkedPrologue(
@@ -2600,7 +2708,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   if (Vals.second == ""
       || Vals.first.getAsInteger(0, limitOffset)
       || Vals.second.getAsInteger(0, tagVal))
-    llvm_unreachable(
+    report_fatal_error(
       "manti-linkstack requires two comma-separated ints: limit, gc tag");
   
   int64_t HPLimitOffset = limitOffset.getSExtValue();
