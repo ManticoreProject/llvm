@@ -2695,10 +2695,10 @@ void X86FrameLowering::emitMantiLinkedPrologue(
       || Vals.first.getAsInteger(0, limitOffset)
       || Vals.second.getAsInteger(0, tagVal))
     report_fatal_error(
-      "manti-linkstack requires two comma-separated ints: limit, gc tag");
+      "manti-linkstack requires two comma-separated ints: hplimit, root gc tag");
   
   int64_t HPLimitOffset = limitOffset.getSExtValue();
-  int64_t GCTag = tagVal.getSExtValue();
+  int64_t RootGCTag = tagVal.getSExtValue();
   
   // get info
   DebugLoc DL;    // debug loc is unknown
@@ -2803,13 +2803,25 @@ void X86FrameLowering::emitMantiLinkedPrologue(
     AllocPtrReg, false, SPStartOffset)
   .setMIFlag(MachineInstr::FrameSetup);
 
-  // FIXME: doesn't the GC tag get computed here? the length of the frame is
-  // only known to LLVM, not pmlc. We can repurpose this integer
-  // to be the allocation size.
+  uint64_t TotalFrameAlloc = StackBump + SPStartOffset;
+  
+  if (TotalFrameAlloc % SlotSize != 0)
+    report_fatal_error("frame size is not a multiple of the word size!");
+  
+  uint32_t TotalWordsInFrame = TotalFrameAlloc / SlotSize;
+  
+  // compute the Manticore heap's GC tag for the frame.
+  // see header-bits.h in Manticore for the layout.
+  
+  uint64_t FrameGCTag = 0;
+  FrameGCTag |= 1;                         // mark not a forwarding pointer
+  FrameGCTag |= (3 << 1);                  // mark ID as linked-frame.
+  FrameGCTag |= (TotalWordsInFrame << 16); // mark length of object.
+  
   int64_t HeaderOffset = -8;
   addRegOffset(BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::MOV64mi32)),
                AllocPtrReg, false, HeaderOffset)
-  .addImm(GCTag)
+  .addImm(FrameGCTag)
   .setMIFlag(MachineInstr::FrameSetup);
   
   // write watermark to the frame
@@ -2822,7 +2834,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   // bump heap pointer
   BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::ADD64ri32), AllocPtrReg)
     .addReg(AllocPtrReg)
-    .addImm(StackBump + SPStartOffset + 8)
+    .addImm(TotalFrameAlloc + 8)
   .setMIFlag(MachineInstr::FrameSetup);
   
   
@@ -2830,9 +2842,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   //        generate a safepoint
   //////////////////////////////////////////
   
-  // TODO: get the Root Tuple tag from the front-end.
-  
-  emitMantiSafepoint(MF, EnterGCMBB, HeapChkMBB, 555);
+  emitMantiSafepoint(MF, EnterGCMBB, HeapChkMBB, RootGCTag);
   
   
   if (StackSize != OldStackSize) {
@@ -2856,15 +2866,10 @@ void X86FrameLowering::emitMantiLinkedPrologue(
       MFI.setObjectOffset(I, offset);
     }
   }
-  
-  MF.dump();
-  
-  
-  
 
-//#ifdef EXPENSIVE_CHECKS
+#ifdef EXPENSIVE_CHECKS
   MF.verify();
-//#endif
+#endif
 }
 
 void X86FrameLowering::emitMantiLinkedEpilog(MachineFunction &MF,
