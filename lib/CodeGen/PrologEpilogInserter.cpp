@@ -991,11 +991,15 @@ void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
       numSaveBlocks++;
     }
 
-    // if there's more than 1, the size of the fun's stack frame increases too much
+    // if there's more than 1, the size of the fun's stack frame increases
+    // too much
     assert(numSaveBlocks == 1 && "unexpected number of save blocks");
 
     for (MachineBasicBlock *RestoreBlock : RestoreBlocks)
-      TFI.emitMantiContigEpilog(Fn, *RestoreBlock);
+      if (MantiLinkStack)
+        TFI.emitMantiLinkedEpilog(Fn, *RestoreBlock);
+      else
+        TFI.emitMantiContigEpilog(Fn, *RestoreBlock);
 
     return;
   }

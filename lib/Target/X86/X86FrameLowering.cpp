@@ -2560,10 +2560,11 @@ void X86FrameLowering::adjustForHiPEPrologue(
 // Based on the live-ins of MBB, emits code that
 // safely invokes the garbage collector, which will resume
 // execution at the After block.
-void X86FrameLowering::emitMantiSafepoint(MachineBasicBlock *MBB,
+void X86FrameLowering::emitMantiSafepoint(
+    MachineFunction &MF, MachineBasicBlock *MBB,
     MachineBasicBlock *After, int64_t RootTag) const {
   
-  DebugLoc DL;    // debug loc is unknown
+  DebugLoc DL;    // debug loc is unknown / irrelevant
   
   MBB->sortUniqueLiveIns();
   
@@ -2575,6 +2576,8 @@ void X86FrameLowering::emitMantiSafepoint(MachineBasicBlock *MBB,
   
   // from Manticore's calling convention
   unsigned AllocPtr = X86::RSI;
+  unsigned VProcPtr = X86::R11;
+  unsigned LinkPtr = X86::RBP;
   
   unsigned RootPtrReg = X86::RBX;
   
@@ -2598,13 +2601,7 @@ void X86FrameLowering::emitMantiSafepoint(MachineBasicBlock *MBB,
       .addReg(Reg);
     }
   }
-  
-//  MCSymbol *Label = MBB->getParent()->getContext().createTempSymbol();
-//
-//  // load return address into a reg
-//  addOffset(
-//    BuildMI(MBB, DL, TII.get(X86::LEA64r), RetAddrReg).addReg(X86::RIP),
-//            MachineOperand::CreateMCSymbol(Label));
+
   
   // save tuple pointer
   BuildMI(MBB, DL, TII.get(X86::MOV64rr), RootPtrReg)
@@ -2615,7 +2612,7 @@ void X86FrameLowering::emitMantiSafepoint(MachineBasicBlock *MBB,
   .addReg(AllocPtr)
   .addImm(Offset + 8);
   
-  // because it's a gigantic pain to take the address of a MachineBasicBlock
+  // NB: Because it's a gigantic pain to take the address of a MachineBasicBlock
   // that has no corresponding BasicBlock, I've decided to just
   // pass the return address in memory via 'call'.
   //
@@ -2626,35 +2623,24 @@ void X86FrameLowering::emitMantiSafepoint(MachineBasicBlock *MBB,
   BuildMI(MBB, DL, TII.get(X86::MOV64rr), X86::RSP)
   .addReg(AllocPtr);
   
-  /* temporary
-   Subtarget.getRegisterInfo()->getCallPreservedMask(*MF, CallingConv::C);
-   if (IsLP64) {
-   BuildMI(mallocMBB, DL, TII->get(X86::MOV64rr), X86::RDI)
-   .addReg(sizeVReg);
-   BuildMI(mallocMBB, DL, TII->get(X86::CALL64pcrel32))
-   .addExternalSymbol("__morestack_allocate_stack_space")
-   .addRegMask(RegMask)
-   .addReg(X86::RDI, RegState::Implicit)
-   .addReg(X86::RAX, RegState::ImplicitDefine);
-   */
-  
-  // TODO: get the right register mask.
-  
-//  auto RegMask = Subtarget.getRegisterInfo()->getCallPreservedMask(*MF, CallingConv::JWA);
-  
   // invoke the GC.
+  const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
+  
   BuildMI(MBB, DL, TII.get(X86::CALL64pcrel32))
   .addExternalSymbol("_ASM_InvokeGC_Linked_LLVM")
+  .addRegMask(TRI->getNoPreservedMask())
   
-  .addReg(X86::R11, RegState::Implicit)
+  // args
+  .addReg(VProcPtr, RegState::Implicit)
   .addReg(AllocPtr, RegState::Implicit)
   .addReg(RootPtrReg, RegState::Implicit)
-  .addReg(X86::RBP, RegState::Implicit)
+  .addReg(LinkPtr, RegState::Implicit)
   
-  .addReg(X86::R11, RegState::ImplicitDefine)
+  // rets
+  .addReg(VProcPtr, RegState::ImplicitDefine)
   .addReg(AllocPtr, RegState::ImplicitDefine)
   .addReg(RootPtrReg, RegState::ImplicitDefine)
-  .addReg(X86::RBP, RegState::ImplicitDefine)
+  .addReg(LinkPtr, RegState::ImplicitDefine)
   ;
   
   
@@ -2738,16 +2724,12 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   
   // compute frame size for the basic, non-leaf case.
   
+  if (CalleeSaveSize != 0)
+    report_fatal_error("manti-linkstack did not expect any callee saves!");
+  
   // compute the minimum bump for all but CSRs
-  StackBump = (StackSize - CalleeSaveSize) + SlotSize + WatermarkSize;
-  
-  // add alignment to the bump, including CSRs and the initial SP alignment
-  // in the calculation. this is the final bump point.
-  StackBump += (StackBump + CalleeSaveSize + InitialOffset) % StackAlign;
-  
-  StackSize = StackBump + CalleeSaveSize;
-  
-  assert(CalleeSaveSize == 0 && "shouldn't be any callee saves!");
+  StackBump = StackSize + SlotSize + WatermarkSize;
+  StackSize = StackBump;
   
   ////////////////////////////////
   
@@ -2821,13 +2803,16 @@ void X86FrameLowering::emitMantiLinkedPrologue(
     AllocPtrReg, false, SPStartOffset)
   .setMIFlag(MachineInstr::FrameSetup);
 
-  // write GC header and watermark to the frame
+  // FIXME: doesn't the GC tag get computed here? the length of the frame is
+  // only known to LLVM, not pmlc. We can repurpose this integer
+  // to be the allocation size.
   int64_t HeaderOffset = -8;
   addRegOffset(BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::MOV64mi32)),
                AllocPtrReg, false, HeaderOffset)
   .addImm(GCTag)
   .setMIFlag(MachineInstr::FrameSetup);
   
+  // write watermark to the frame
   int64_t WatermarkOffset = 16;
   addRegOffset(BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::MOV64mi32)),
                AllocPtrReg, false, WatermarkOffset)
@@ -2837,7 +2822,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   // bump heap pointer
   BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::ADD64ri32), AllocPtrReg)
     .addReg(AllocPtrReg)
-    .addImm(StackBump + 8)
+    .addImm(StackBump + SPStartOffset + 8)
   .setMIFlag(MachineInstr::FrameSetup);
   
   
@@ -2846,7 +2831,8 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   //////////////////////////////////////////
   
   // TODO: get the Root Tuple tag from the front-end.
-  emitMantiSafepoint(EnterGCMBB, HeapChkMBB, 555);
+  
+  emitMantiSafepoint(MF, EnterGCMBB, HeapChkMBB, 555);
   
   
   if (StackSize != OldStackSize) {
@@ -2879,6 +2865,24 @@ void X86FrameLowering::emitMantiLinkedPrologue(
 //#ifdef EXPENSIVE_CHECKS
   MF.verify();
 //#endif
+}
+
+void X86FrameLowering::emitMantiLinkedEpilog(MachineFunction &MF,
+                           MachineBasicBlock &EpilogMBB) const {
+  
+  // the GC reclaims the frame's memory, so this is simple.
+  
+  DebugLoc DL;    // debug loc is irrelevant
+  MachineBasicBlock::iterator MBBI = EpilogMBB.getFirstTerminator();
+  
+  BuildMI(EpilogMBB, MBBI, DL, TII.get(X86::MOV64rr), X86::RSP)
+          .addReg(X86::RBP);
+  
+  BuildMI(EpilogMBB, MBBI, DL, TII.get(X86::POP64r), X86::RBP);
+  
+#ifdef EXPENSIVE_CHECKS
+  MF.verify();
+#endif
 }
 
 void X86FrameLowering::emitMantiContigPrologue(

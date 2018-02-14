@@ -187,6 +187,10 @@ public:
     /// Emit a prologue for Manticore linked stacks.
   virtual void emitMantiLinkedPrologue(MachineFunction &MF,
                                      MachineBasicBlock &PrologueMBB) const {}
+  
+  /// Emit an epilog for Manticore linked stacks.
+  virtual void emitMantiLinkedEpilog(MachineFunction &MF,
+                                     MachineBasicBlock &EpilogMBB) const {}
 
   /// Emit an epilog for Manticore contiguous stacks.
   virtual void emitMantiContigEpilog(MachineFunction &MF,

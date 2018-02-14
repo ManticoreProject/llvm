@@ -80,6 +80,9 @@ public:
 
   void emitMantiLinkedPrologue(MachineFunction &MF,
                              MachineBasicBlock &PrologueMBB) const override;
+  
+  void emitMantiLinkedEpilog(MachineFunction &MF,
+                             MachineBasicBlock &EpilogMBB) const override;
 
   void emitMantiContigEpilog(MachineFunction &MF,
                              MachineBasicBlock &EpilogMBB) const override;
@@ -224,7 +227,8 @@ private:
                                MachineBasicBlock::iterator MBBI,
                                MachineInstr *CatchRet) const;
   
-  void emitMantiSafepoint(MachineBasicBlock *MBB,
+  void emitMantiSafepoint(MachineFunction &MF,
+                          MachineBasicBlock *MBB,
                           MachineBasicBlock *After,
                           int64_t RootTag) const;
 };
