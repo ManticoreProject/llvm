@@ -2627,7 +2627,7 @@ void X86FrameLowering::emitMantiSafepoint(
   const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
   
   BuildMI(MBB, DL, TII.get(X86::CALL64pcrel32))
-  .addExternalSymbol("ASM_InvokeGC_Linked_LLVM")
+  .addExternalSymbol("ASM_LinkedStack_PrologueGC")
   .addRegMask(TRI->getNoPreservedMask())
   
   // args
