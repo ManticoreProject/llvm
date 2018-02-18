@@ -2610,7 +2610,7 @@ void X86FrameLowering::emitMantiSafepoint(
   // bump heap pointer
   BuildMI(MBB, DL, TII.get(X86::ADD64ri32), AllocPtr)
   .addReg(AllocPtr)
-  .addImm(Offset + 8);
+  .addImm(Offset + 16); // move past the last word, plus an additional word.
   
   // NB: Because it's a gigantic pain to take the address of a MachineBasicBlock
   // that has no corresponding BasicBlock, I've decided to just
