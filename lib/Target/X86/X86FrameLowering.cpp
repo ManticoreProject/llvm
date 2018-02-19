@@ -2592,15 +2592,20 @@ void X86FrameLowering::emitMantiSafepoint(
                AllocPtr, false, Offset)
   .addImm(RootTag);
   
-  // dump the live values in argument registers
+  // dump the live values in argument registers to memory
+  unsigned Saves = 0;
   for (unsigned Reg : LiveRegs) {
     if (MBB->isLiveIn(Reg)) {
       Offset += 8;
       addRegOffset(BuildMI(MBB, DL, TII.get(X86::MOV64mr)),
                    AllocPtr, false, Offset)
       .addReg(Reg);
+      Saves++;
     }
   }
+  
+  if (Saves != (RootTag >> 16))
+    report_fatal_error("RootTag value does not match the number of live regs.");
 
   
   // save tuple pointer
