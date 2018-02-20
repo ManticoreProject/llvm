@@ -2608,10 +2608,12 @@ void X86FrameLowering::emitMantiSafepoint(
     }
   }
   
-  if (Saves != (RootTag >> 16))
+  if (Saves != (RootTag >> 16)) {
+    MBB->dump();
     report_fatal_error(
       ("Number of roots saved by prologue differs from the RootTag in "
        + MF.getName()));
+  }
   
   
 
