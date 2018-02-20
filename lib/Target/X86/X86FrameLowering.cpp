@@ -2565,6 +2565,7 @@ void X86FrameLowering::emitMantiSafepoint(
     MachineBasicBlock *After, int64_t RootTag) const {
   
   DebugLoc DL;    // debug loc is unknown / irrelevant
+  const TargetRegisterClass &GR64Class = X86::GR64RegClass;
   
   MBB->sortUniqueLiveIns();
   
@@ -2599,7 +2600,8 @@ void X86FrameLowering::emitMantiSafepoint(
   for (unsigned Reg : LiveRegs) {
     if (MBB->isLiveIn(Reg)) {
       Offset += 8;
-      addRegOffset(BuildMI(MBB, DL, TII.get(X86::MOV64mr)),
+      unsigned Op = GR64Class.contains(Reg) ? X86::MOV64mr : X86::MOVSDmr;
+      addRegOffset(BuildMI(MBB, DL, TII.get(Op)),
                    AllocPtr, false, Offset)
       .addReg(Reg);
       Saves++;
@@ -2635,7 +2637,6 @@ void X86FrameLowering::emitMantiSafepoint(
   .addReg(AllocPtr);
   
   // invoke the GC.
-  const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
   
   BuildMI(MBB, DL, TII.get(X86::CALL64pcrel32))
   .addExternalSymbol("ASM_LinkedStack_PrologueGC")
@@ -2664,7 +2665,8 @@ void X86FrameLowering::emitMantiSafepoint(
   Offset = 0;
   for (unsigned Reg : LiveRegs) {
     if (MBB->isLiveIn(Reg)) {
-      addRegOffset(BuildMI(MBB, DL, TII.get(X86::MOV64rm), Reg),
+      unsigned Op = GR64Class.contains(Reg) ? X86::MOV64rm : X86::MOVSDrm;
+      addRegOffset(BuildMI(MBB, DL, TII.get(Op), Reg),
                    RootPtrReg, false, Offset);
       Offset += 8;
     }
