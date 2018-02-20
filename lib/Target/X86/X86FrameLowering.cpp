@@ -2569,10 +2569,12 @@ void X86FrameLowering::emitMantiSafepoint(
   MBB->sortUniqueLiveIns();
   
   // NB: order matters.
-  SmallVector<unsigned, 8> LiveRegs = {
+  SmallVector<unsigned, 14> LiveRegs = {
     X86::RDI, // env
     X86::R9,  // exn
-    X86::RAX, X86::R10, X86::R12, X86::R13, X86::R14, X86::R15}; // arg regs
+    X86::RAX, X86::R10, X86::R12, X86::R13, X86::R14, X86::R15, // GPR arg regs
+    X86::XMM2, X86::XMM3, X86::XMM4, X86::XMM5, X86::XMM6, X86::XMM7 // FP regs
+  };
   
   // from Manticore's calling convention
   unsigned AllocPtr = X86::RSI;
@@ -2605,7 +2607,11 @@ void X86FrameLowering::emitMantiSafepoint(
   }
   
   if (Saves != (RootTag >> 16))
-    report_fatal_error("RootTag value does not match the number of live regs.");
+    report_fatal_error(
+      ("Number of roots saved by prologue differs from the RootTag in "
+       + MF.getName()));
+  
+  
 
   
   // save tuple pointer
