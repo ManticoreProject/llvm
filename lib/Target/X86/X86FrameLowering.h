@@ -230,7 +230,7 @@ private:
   void emitMantiSafepoint(MachineFunction &MF,
                           MachineBasicBlock *MBB,
                           MachineBasicBlock *After,
-                          int64_t RootTag) const;
+                          uint64_t GCInfo) const;
 };
 
 } // End llvm namespace

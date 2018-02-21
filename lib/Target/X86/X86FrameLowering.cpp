@@ -2562,7 +2562,7 @@ void X86FrameLowering::adjustForHiPEPrologue(
 // execution at the After block.
 void X86FrameLowering::emitMantiSafepoint(
     MachineFunction &MF, MachineBasicBlock *MBB,
-    MachineBasicBlock *After, int64_t RootTag) const {
+    MachineBasicBlock *After, uint64_t GCInfo) const {
   
   DebugLoc DL;    // debug loc is unknown / irrelevant
   const TargetRegisterClass &GR64Class = X86::GR64RegClass;
@@ -2570,12 +2570,17 @@ void X86FrameLowering::emitMantiSafepoint(
   MBB->sortUniqueLiveIns();
   
   // NB: order matters.
-  SmallVector<unsigned, 14> LiveRegs = {
+  SmallVector<unsigned, 15> InputRegs = {
     X86::RDI, // env
+    X86::R8,  // retk (unused)
     X86::R9,  // exn
     X86::RAX, X86::R10, X86::R12, X86::R13, X86::R14, X86::R15, // GPR arg regs
     X86::XMM2, X86::XMM3, X86::XMM4, X86::XMM5, X86::XMM6, X86::XMM7 // FP regs
   };
+  
+  // in theory we can handle more live values, but anything past the 16th
+  // had better not be a GC pointer!
+  assert(InputRegs.size() <= 16 && "currently do not handle this case");
   
   // from Manticore's calling convention
   unsigned AllocPtr = X86::RSI;
@@ -2583,39 +2588,46 @@ void X86FrameLowering::emitMantiSafepoint(
   unsigned LinkPtr = X86::RBP;
   
   unsigned RootPtrReg = X86::RBX;
+  unsigned ScratchReg = X86::RCX;
   
   ////////
   // allocate a tuple containing all of the roots
   ////////
   
-  int64_t Offset = -8;
   
-  // write tuple's GC tag
-  addRegOffset(BuildMI(MBB, DL, TII.get(X86::MOV64mi32)),
-               AllocPtr, false, Offset)
-  .addImm(RootTag);
+  /*
   
-  // dump the live values in argument registers to memory
-  unsigned Saves = 0;
-  for (unsigned Reg : LiveRegs) {
+  */
+  
+  // dump the live values in argument registers into a heap object
+  
+  uint64_t GCTag = 0;
+  int64_t BitPos = 0; // corresponds to the actual position in the tuple.
+  for (uint64_t InfoIdx = 0; InfoIdx < InputRegs.size(); ++InfoIdx) {
+    unsigned Reg = InputRegs[InfoIdx];
     if (MBB->isLiveIn(Reg)) {
-      Offset += 8;
       unsigned Op = GR64Class.contains(Reg) ? X86::MOV64mr : X86::MOVSDmr;
       addRegOffset(BuildMI(MBB, DL, TII.get(Op)),
-                   AllocPtr, false, Offset)
+                   AllocPtr, false, BitPos * 8)
       .addReg(Reg);
-      Saves++;
+      
+      if (GCInfo & (1 << InfoIdx))
+        GCTag |= (1 << BitPos);
+      
+      BitPos++;
     }
   }
   
-  if (Saves != (RootTag >> 16)) {
-    MBB->dump();
-    report_fatal_error(
-      ("Number of roots saved by prologue differs from the RootTag in "
-       + MF.getName()));
-  }
+  // finish the GC tag's fields
+  GCTag = (GCTag << 48) | (BitPos << 16) | (4 << 1) | 1;
   
+  // write tuple's GC tag, which normally exceeds 32-bits.
+  BuildMI(MBB, DL, TII.get(X86::MOV64ri), ScratchReg)
+  .addImm(GCTag);
   
+  addRegOffset(BuildMI(MBB, DL, TII.get(X86::MOV64mr)),
+               AllocPtr, false, -8)
+  .addReg(ScratchReg);
 
   
   // save tuple pointer
@@ -2625,7 +2637,7 @@ void X86FrameLowering::emitMantiSafepoint(
   // bump heap pointer
   BuildMI(MBB, DL, TII.get(X86::ADD64ri32), AllocPtr)
   .addReg(AllocPtr)
-  .addImm(Offset + 16); // move past the last word, plus an additional word.
+  .addImm((BitPos * 8) + 16); // move past the last word, plus an one more.
   
   // NB: Because it's a gigantic pain to take the address of a MachineBasicBlock
   // that has no corresponding BasicBlock, I've decided to just
@@ -2664,13 +2676,13 @@ void X86FrameLowering::emitMantiSafepoint(
   ////////////////
   
   // NB: tuple is returned in register here.
-  Offset = 0;
-  for (unsigned Reg : LiveRegs) {
+  int64_t WordOffset = 0;
+  for (unsigned Reg : InputRegs) {
     if (MBB->isLiveIn(Reg)) {
       unsigned Op = GR64Class.contains(Reg) ? X86::MOV64rm : X86::MOVSDrm;
       addRegOffset(BuildMI(MBB, DL, TII.get(Op), Reg),
-                   RootPtrReg, false, Offset);
-      Offset += 8;
+                   RootPtrReg, false, WordOffset);
+      WordOffset += 8;
     }
   }
   
@@ -2713,7 +2725,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
       "manti-linkstack requires two comma-separated ints: hplimit, root gc tag");
   
   int64_t HPLimitOffset = limitOffset.getSExtValue();
-  int64_t RootGCTag = tagVal.getSExtValue();
+  uint64_t GCInfo = tagVal.getZExtValue();
   
   // get info
   DebugLoc DL;    // debug loc is unknown
@@ -2857,7 +2869,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   //        generate a safepoint
   //////////////////////////////////////////
   
-  emitMantiSafepoint(MF, EnterGCMBB, HeapChkMBB, RootGCTag);
+  emitMantiSafepoint(MF, EnterGCMBB, HeapChkMBB, GCInfo);
   
   
   if (StackSize != OldStackSize) {
