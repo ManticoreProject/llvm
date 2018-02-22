@@ -2888,6 +2888,20 @@ void X86FrameLowering::emitMantiLinkedPrologue(
       if (MFI.isDeadObjectIndex(I))
         continue;
       
+      assert(MFI.getObjectSize(I) <= 8 && "Objects must be <= 8 bytes.");
+      
+      // TODO: maybe to check that every object occupies one 8-byte slot,
+      // regardless of its alignment within said slot, we can keep track
+      // of slot boundries in this loop. Right now, 4-byte objects
+      // are shifted over in the slot:
+      //
+      //       | XXXX BBBB |
+      //       ^      ^    ^
+      //       40     44   48
+      //
+      // Thus, we want to ensure that no object occupies bytes 40-44.
+      
+      
       int64_t offset = MFI.getObjectOffset(I);
       offset -= InitialOffset;
       MFI.setObjectOffset(I, offset);
