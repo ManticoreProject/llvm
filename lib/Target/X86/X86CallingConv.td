@@ -424,7 +424,7 @@ def CC_X86_64_JWA : CallingConv<[
 
   // RSP = stack pointer
   // RBP = frame pointer
-  // RBX, RCX, RDX = temporary.
+  // RBX, RCX = temporary.
   
   CCIfType<[i64],
   CCAssignToReg<[RSI, // allocation pointer
@@ -438,7 +438,8 @@ def CC_X86_64_JWA : CallingConv<[
                  R12,
                  R13,
                  R14,
-                 R15
+                 R15,
+                 RDX
                  ]>>,
 
 
