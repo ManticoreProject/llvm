@@ -68,7 +68,7 @@ X86FrameLowering::canSimplifyCallFramePseudos(const MachineFunction &MF) const {
 // needsFrameIndexResolution - Do we need to perform FI resolution for
 // this function. Normally, this is required only when the function
 // has any stack objects. However, FI resolution actually has another job,
-// not apparent from the title - it resolves callframesetup/destroy 
+// not apparent from the title - it resolves callframesetup/destroy
 // that were not simplified earlier.
 // So, this is required for x86 functions that have push sequences even
 // when there are no stack objects.
@@ -603,7 +603,7 @@ void X86FrameLowering::emitStackProbeInline(MachineFunction &MF,
   int64_t RCXShadowSlot = 0;
   int64_t RDXShadowSlot = 0;
 
-  // If inlining in the prolog, save RCX and RDX.     
+  // If inlining in the prolog, save RCX and RDX.
   // Future optimization: don't save or restore if not live in.
   if (InProlog) {
     // Compute the offsets. We need to account for things already
@@ -2563,12 +2563,12 @@ void X86FrameLowering::adjustForHiPEPrologue(
 void X86FrameLowering::emitMantiSafepoint(
     MachineFunction &MF, MachineBasicBlock *MBB,
     MachineBasicBlock *After, uint64_t GCInfo) const {
-  
+
   DebugLoc DL;    // debug loc is unknown / irrelevant
   const TargetRegisterClass &GR64Class = X86::GR64RegClass;
-  
+
   MBB->sortUniqueLiveIns();
-  
+
   // NB: order matters.
   SmallVector<unsigned, 15> InputRegs = {
     X86::RDI, // env
@@ -2577,30 +2577,30 @@ void X86FrameLowering::emitMantiSafepoint(
     X86::RAX, X86::R10, X86::R12, X86::R13, X86::R14, X86::R15, // GPR arg regs
     X86::XMM2, X86::XMM3, X86::XMM4, X86::XMM5, X86::XMM6, X86::XMM7 // FP regs
   };
-  
+
   // in theory we can handle more live values, but anything past the 16th
   // had better not be a GC pointer!
   assert(InputRegs.size() <= 16 && "currently do not handle this case");
-  
+
   // from Manticore's calling convention
   unsigned AllocPtr = X86::RSI;
   unsigned VProcPtr = X86::R11;
   unsigned LinkPtr = X86::RBP;
-  
+
   unsigned RootPtrReg = X86::RBX;
   unsigned ScratchReg = X86::RCX;
-  
+
   ////////
   // allocate a tuple containing all of the roots
   ////////
-  
-  
+
+
   /*
-  
+
   */
-  
+
   // dump the live values in argument registers into a heap object
-  
+
   uint64_t GCTag = 0;
   int64_t BitPos = 0; // corresponds to the actual position in the tuple.
   for (uint64_t InfoIdx = 0; InfoIdx < InputRegs.size(); ++InfoIdx) {
@@ -2610,71 +2610,71 @@ void X86FrameLowering::emitMantiSafepoint(
       addRegOffset(BuildMI(MBB, DL, TII.get(Op)),
                    AllocPtr, false, BitPos * 8)
       .addReg(Reg);
-      
+
       if (GCInfo & (1 << InfoIdx))
         GCTag |= (1 << BitPos);
-      
+
       BitPos++;
     }
   }
-  
+
   // finish the GC tag's fields
   GCTag = (GCTag << 48) | (BitPos << 16) | (4 << 1) | 1;
-  
+
   // write tuple's GC tag, which normally exceeds 32-bits.
   BuildMI(MBB, DL, TII.get(X86::MOV64ri), ScratchReg)
   .addImm(GCTag);
-  
+
   addRegOffset(BuildMI(MBB, DL, TII.get(X86::MOV64mr)),
                AllocPtr, false, -8)
   .addReg(ScratchReg);
 
-  
+
   // save tuple pointer
   BuildMI(MBB, DL, TII.get(X86::MOV64rr), RootPtrReg)
   .addReg(AllocPtr);
-  
+
   // bump heap pointer
   BuildMI(MBB, DL, TII.get(X86::ADD64ri32), AllocPtr)
   .addReg(AllocPtr)
   .addImm((BitPos * 8) + 16); // move past the last word, plus an one more.
-  
+
   // NB: Because it's a gigantic pain to take the address of a MachineBasicBlock
   // that has no corresponding BasicBlock, I've decided to just
   // pass the return address in memory via 'call'.
   //
   // Since we currently have no stack space, we just use the heap pointer,
   // since there's built-in extra space.
-  
+
   // We clobber RSP since it's already saved in RBP.
   BuildMI(MBB, DL, TII.get(X86::MOV64rr), X86::RSP)
   .addReg(AllocPtr);
-  
+
   // invoke the GC.
-  
+
   BuildMI(MBB, DL, TII.get(X86::CALL64pcrel32))
   .addExternalSymbol("ASM_LinkedStack_PrologueGC")
   .addRegMask(TRI->getNoPreservedMask())
-  
+
   // args
   .addReg(VProcPtr, RegState::Implicit)
   .addReg(AllocPtr, RegState::Implicit)
   .addReg(RootPtrReg, RegState::Implicit)
   .addReg(LinkPtr, RegState::Implicit)
-  
+
   // rets
   .addReg(VProcPtr, RegState::ImplicitDefine)
   .addReg(AllocPtr, RegState::ImplicitDefine)
   .addReg(RootPtrReg, RegState::ImplicitDefine)
   .addReg(LinkPtr, RegState::ImplicitDefine)
   ;
-  
-  
-  
+
+
+
   ////////////////
   // Reload live values from the tuple after GC
   ////////////////
-  
+
   // NB: tuple is returned in register here.
   int64_t WordOffset = 0;
   for (unsigned Reg : InputRegs) {
@@ -2685,7 +2685,7 @@ void X86FrameLowering::emitMantiSafepoint(
       WordOffset += 8;
     }
   }
-  
+
   // jump to "after GC" block
   BuildMI(MBB, DL, TII.get(X86::JMP_1))
   .addMBB(After);
@@ -2696,11 +2696,11 @@ void X86FrameLowering::emitMantiSafepoint(
 
 void X86FrameLowering::emitMantiLinkedPrologue(
     MachineFunction &MF, MachineBasicBlock &BodyMBB) const {
-  
+
   // pre-conditions
   assert(&(*MF.begin()) == &BodyMBB && "Shrink-wrapping not supported yet");
   assert(Is64Bit && "Manti-linkstack is only supported under 64 bit.");
-  
+
   // NB: without frame pointer elimination, the frame acccess is based on
   // rbp instead of rsp. This is okay if stacks are contiguous, but ours
   // is not... rbp points to the _caller's_ frame because it's cheaper
@@ -2709,29 +2709,29 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   // I'd prefer knowing that no assumptions have been made about
   // the frame pointer, so that I can make my own constraints. ~kavon
   assert(hasFP(MF) == false && "Frame-pointer elimination is required.");
-  
+
   // grab the heap limit offset, and GC tag, from the attribute.
   const Function& Func = MF.getFunction();
   APInt limitOffset;
   APInt tagVal;
-  
+
   StringRef Attr = Func.getFnAttribute("manti-linkstack").getValueAsString();
   auto Vals = Attr.split(',');
-  
+
   if (Vals.second == ""
       || Vals.first.getAsInteger(0, limitOffset)
       || Vals.second.getAsInteger(0, tagVal))
     report_fatal_error(
       "manti-linkstack requires two comma-separated ints: hplimit, root gc tag");
-  
+
   int64_t HPLimitOffset = limitOffset.getSExtValue();
   uint64_t GCInfo = tagVal.getZExtValue();
-  
+
   // get info
   DebugLoc DL;    // debug loc is unknown
   MachineFrameInfo &MFI = MF.getFrameInfo();
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
-  
+
   uint64_t StackAlign = getStackAlignment();
   uint64_t OldStackSize = MFI.getStackSize();    // Number of bytes to allocate.
   uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
@@ -2740,89 +2740,89 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   uint64_t InitialOffset = SlotSize;  // from return address we're passed.
   uint64_t StackBump;
   uint64_t StackSize = OldStackSize;
-  
+
   unsigned VProcReg = X86::R11;
   unsigned AllocPtrReg = X86::RSI;
   unsigned FrameLinkReg = X86::RBP;
-  
+
   assert(StackAlign == 16 && "alignment doesn't match ABI expectations");
-  
+
   ///////////////////////////////
-  
+
   // compute frame size for the basic, non-leaf case.
-  
+
   if (CalleeSaveSize != 0)
     report_fatal_error("manti-linkstack did not expect any callee saves!");
-  
+
   // compute the minimum bump for all but CSRs
   StackBump = StackSize + SlotSize + WatermarkSize;
   StackSize = StackBump;
-  
+
   ////////////////////////////////
-  
+
   ////////
   // setup new blocks
   ////////
-  
+
   MachineBasicBlock *SetupMBB = MF.CreateMachineBasicBlock();
   MachineBasicBlock *HeapChkMBB = MF.CreateMachineBasicBlock();
   MachineBasicBlock *EnterGCMBB = MF.CreateMachineBasicBlock();
-  
-  
+
+
   for (const auto &LI : BodyMBB.liveins()) {
     SetupMBB->addLiveIn(LI);
     HeapChkMBB->addLiveIn(LI);
     EnterGCMBB->addLiveIn(LI);
   }
-  
+
   MF.push_front(HeapChkMBB);
   MF.push_front(SetupMBB);
   HeapChkMBB->moveBefore(&BodyMBB);
   SetupMBB->moveBefore(HeapChkMBB);
-  
+
   MF.push_back(EnterGCMBB); // this block is cold, so we push onto the end.
-  
+
   SetupMBB->addSuccessor(HeapChkMBB);
-  
+
   HeapChkMBB->addSuccessor(&BodyMBB, {99, 100});  // N/M probability
   HeapChkMBB->addSuccessor(EnterGCMBB, {1, 100});
-  
-  
+
+
   ////////
   // setup link pointers
   ////////
-  
+
   // save caller's link pointer to their frame
   BuildMI(SetupMBB, DL, TII.get(X86::PUSH64r))
     .addReg(FrameLinkReg)
     .setMIFlag(MachineInstr::FrameSetup);
-  
+
   // setup our own link pointer.
   BuildMI(SetupMBB, DL, TII.get(X86::MOV64rr), FrameLinkReg)
     .addReg(X86::RSP)
     .setMIFlag(MachineInstr::FrameSetup);
-  
+
   ///////
   // check for heap exhaustion
   //////
-  
+
   addRegOffset(
     BuildMI(HeapChkMBB, DL, TII.get(X86::CMP64rm)).addReg(AllocPtrReg),
                VProcReg, false, HPLimitOffset)
   .setMIFlag(MachineInstr::FrameSetup);
-  
+
   // control falls-through to BodyMBB if the heap is not exhausted
   BuildMI(HeapChkMBB, DL, TII.get(X86::JGE_1))
     .addMBB(EnterGCMBB)
     .setMIFlag(MachineInstr::FrameSetup);
-  
-  
+
+
   ////////
   // allocate & initialize the frame in the Body
   ////////
 
   MachineBasicBlock::iterator BodyMBBI = BodyMBB.begin();
-  
+
   // set rsp
   int64_t SPStartOffset = 16;
   addRegOffset(
@@ -2831,65 +2831,65 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   .setMIFlag(MachineInstr::FrameSetup);
 
   uint64_t TotalFrameAlloc = StackBump + SPStartOffset;
-  
+
   if (TotalFrameAlloc % SlotSize != 0)
     report_fatal_error("frame size is not a multiple of the word size!");
-  
+
   uint32_t TotalWordsInFrame = TotalFrameAlloc / SlotSize;
-  
+
   // compute the Manticore heap's GC tag for the frame.
   // see header-bits.h in Manticore for the layout.
-  
+
   uint64_t FrameGCTag = 0;
   FrameGCTag |= 1;                         // mark not a forwarding pointer
   FrameGCTag |= (3 << 1);                  // mark ID as linked-frame.
   FrameGCTag |= (TotalWordsInFrame << 16); // mark length of object.
-  
+
   int64_t HeaderOffset = -8;
   addRegOffset(BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::MOV64mi32)),
                AllocPtrReg, false, HeaderOffset)
   .addImm(FrameGCTag)
   .setMIFlag(MachineInstr::FrameSetup);
-  
+
   // write watermark to the frame
   int64_t WatermarkOffset = 16;
   addRegOffset(BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::MOV64mi32)),
                AllocPtrReg, false, WatermarkOffset)
   .addImm(0)
   .setMIFlag(MachineInstr::FrameSetup);
-  
+
   // bump heap pointer
   BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::ADD64ri32), AllocPtrReg)
     .addReg(AllocPtrReg)
     .addImm(TotalFrameAlloc + 8)
   .setMIFlag(MachineInstr::FrameSetup);
-  
-  
+
+
   //////////////////////////////////////////
   //        generate a safepoint
   //////////////////////////////////////////
-  
+
   emitMantiSafepoint(MF, EnterGCMBB, HeapChkMBB, GCInfo);
-  
-  
+
+
   if (StackSize != OldStackSize) {
     // set final stack size for correct stackmap emission
     MFI.setStackSize(StackSize);
-    
+
     // after setting the stack size, the offsets for all stack objects
     // shifts up to the top for some reason, so we need to pull them back
     // down to avoid overwriting the return address or CSR
-    
+
     // Loop to process fixed stack objects:
     // for (int I = MFI.getObjectIndexBegin(); I < 0; ++I) {
-    
+
     // Process ordinary stack objects.
     for (int I = 0, E = MFI.getObjectIndexEnd(); I < E; ++I) {
       if (MFI.isDeadObjectIndex(I))
         continue;
-      
+
       assert(MFI.getObjectSize(I) <= 8 && "Objects must be <= 8 bytes.");
-      
+
       // TODO: maybe to check that every object occupies one 8-byte slot,
       // regardless of its alignment within said slot, we can keep track
       // of slot boundries in this loop. Right now, 4-byte objects
@@ -2900,8 +2900,8 @@ void X86FrameLowering::emitMantiLinkedPrologue(
       //       40     44   48
       //
       // Thus, we want to ensure that no object occupies bytes 40-44.
-      
-      
+
+
       int64_t offset = MFI.getObjectOffset(I);
       offset -= InitialOffset;
       MFI.setObjectOffset(I, offset);
@@ -2915,17 +2915,17 @@ void X86FrameLowering::emitMantiLinkedPrologue(
 
 void X86FrameLowering::emitMantiLinkedEpilog(MachineFunction &MF,
                            MachineBasicBlock &EpilogMBB) const {
-  
+
   // the GC reclaims the frame's memory, so this is simple.
-  
+
   DebugLoc DL;    // debug loc is irrelevant
   MachineBasicBlock::iterator MBBI = EpilogMBB.getFirstTerminator();
-  
+
   BuildMI(EpilogMBB, MBBI, DL, TII.get(X86::MOV64rr), X86::RSP)
           .addReg(X86::RBP);
-  
+
   BuildMI(EpilogMBB, MBBI, DL, TII.get(X86::POP64r), X86::RBP);
-  
+
 #ifdef EXPENSIVE_CHECKS
   MF.verify();
 #endif
@@ -2962,7 +2962,7 @@ void X86FrameLowering::emitMantiContigPrologue(
   bool NeedsWatermark = false;
 
   if (!(MFI.hasCalls())) {
-    // it's a leaf, so no chance of GC (thus no watermark), 
+    // it's a leaf, so no chance of GC (thus no watermark),
     // nor do we need a particular stack alignment.
 
     StackBump = StackSize - CalleeSaveSize;
@@ -2980,9 +2980,9 @@ void X86FrameLowering::emitMantiContigPrologue(
     if (IncludeSize) {
       WatermarkSize += SlotSize;
     }
-    
+
     // compute the minimum bump for all but CSRs
-    StackBump = (StackSize - CalleeSaveSize) + SlotSize + WatermarkSize;  
+    StackBump = (StackSize - CalleeSaveSize) + SlotSize + WatermarkSize;
 
     // add alignment to the bump, including CSRs and the initial SP alignment
     // in the calculation. this is the final bump point.
@@ -2990,7 +2990,7 @@ void X86FrameLowering::emitMantiContigPrologue(
 
     StackSize = StackBump + CalleeSaveSize;
 
-    // now, take away the watermark size after align, 
+    // now, take away the watermark size after align,
     // because we're going to use push instead of mov below.
     StackBump -= WatermarkSize;
   }
@@ -3014,14 +3014,14 @@ void X86FrameLowering::emitMantiContigPrologue(
       // push the frame's size
       BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64i32))
             .addImm(StackSize)
-            .setMIFlag(MachineInstr::FrameSetup); 
+            .setMIFlag(MachineInstr::FrameSetup);
     }
 
-    // push the watermark to the end of the frame. 
+    // push the watermark to the end of the frame.
     // This will leave SP correctly aligned whether we emitted a bump or not.
     BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64i32))
           .addImm(0)
-          .setMIFlag(MachineInstr::FrameSetup);  
+          .setMIFlag(MachineInstr::FrameSetup);
   }
 
   if (StackSize != OldStackSize) {
@@ -3123,9 +3123,9 @@ void X86FrameLowering::adjustForMantiSegStack(
 
   MF.push_front(checkMBB);
   MF.push_back(allocMBB);
-  
+
   allocMBB->addSuccessor(&PrologueMBB);
-  
+
   checkMBB->addSuccessor(allocMBB, {1, 100});
   checkMBB->addSuccessor(&PrologueMBB, {99, 100});
 
@@ -3139,37 +3139,37 @@ void X86FrameLowering::adjustForMantiSegStack(
   //    cmpq  LimOffset(VProcReg), Scratch
   //    jle   allocMBB
   //  ]
-  //    
+  //
 
   unsigned VProcReg = X86::R11;
   unsigned Comparee = X86::RSP;
 
   if (StackSize >= Slop) {
     unsigned Scratch = X86::RBX;
-    
+
     addRegOffset(
       BuildMI(checkMBB, DL, TII.get(X86::LEA64r), Scratch),
         X86::RSP, false, -((int64_t)StackSize));
-    
+
     Comparee = Scratch;
   }
-  
+
   addRegOffset(
     BuildMI(checkMBB, DL, TII.get(X86::CMP64rm)).addReg(Comparee),
     VProcReg, false, LimVPOffset);
-  
+
   BuildMI(checkMBB, DL, TII.get(X86::JLE_1)).addMBB(allocMBB);
-  
+
 
   // otherwise, we jump to allocMBB, which just calls the RTS handler
   // and then resumes at PrologueMBB
   //==================================================
 
   // TODO: does this symbol name work on both macOS and Linux?
-  
+
   BuildMI(allocMBB, DL, TII.get(X86::CALL64pcrel32))
         .addExternalSymbol("__manti_growstack");
-  
+
   BuildMI(allocMBB, DL, TII.get(X86::JMP_1)).addMBB(&PrologueMBB);
 
   //==================================================
@@ -3250,7 +3250,7 @@ bool X86FrameLowering::adjustStackWithPops(MachineBasicBlock &MBB,
     Regs[FoundRegs++] = Regs[0];
 
   for (int i = 0; i < NumPops; ++i)
-    BuildMI(MBB, MBBI, DL, 
+    BuildMI(MBB, MBBI, DL,
             TII.get(STI.is64Bit() ? X86::POP64r : X86::POP32r), Regs[i]);
 
   return true;
@@ -3531,7 +3531,7 @@ struct X86FrameSortingComparator {
     // in general. Something to keep in mind, though.
     if (DensityAScaled == DensityBScaled)
       return A.ObjectAlignment < B.ObjectAlignment;
-    
+
     return DensityAScaled < DensityBScaled;
   }
 };
@@ -3567,7 +3567,7 @@ void X86FrameLowering::orderFrameObjects(
     if (ObjectSize == 0)
       // Variable size. Just use 4.
       SortingObjects[Obj].ObjectSize = 4;
-    else      
+    else
       SortingObjects[Obj].ObjectSize = ObjectSize;
   }
 
