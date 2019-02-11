@@ -2754,42 +2754,22 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   if (CalleeSaveSize != 0)
     report_fatal_error("manti-linkstack did not expect any callee saves!");
 
-  // compute the minimum bump for all but CSRs
-  StackBump = StackSize + SlotSize + WatermarkSize;
-  StackSize = StackBump;
-
   ////////////////////////////////
 
   ////////
-  // setup new blocks
+  // need a setup block
   ////////
 
   MachineBasicBlock *SetupMBB = MF.CreateMachineBasicBlock();
-  MachineBasicBlock *HeapChkMBB = MF.CreateMachineBasicBlock();
-  MachineBasicBlock *EnterGCMBB = MF.CreateMachineBasicBlock();
 
-
-  for (const auto &LI : BodyMBB.liveins()) {
+  for (const auto &LI : BodyMBB.liveins())
     SetupMBB->addLiveIn(LI);
-    HeapChkMBB->addLiveIn(LI);
-    EnterGCMBB->addLiveIn(LI);
-  }
 
-  MF.push_front(HeapChkMBB);
   MF.push_front(SetupMBB);
-  HeapChkMBB->moveBefore(&BodyMBB);
-  SetupMBB->moveBefore(HeapChkMBB);
-
-  MF.push_back(EnterGCMBB); // this block is cold, so we push onto the end.
-
-  SetupMBB->addSuccessor(HeapChkMBB);
-
-  HeapChkMBB->addSuccessor(&BodyMBB, {99, 100});  // N/M probability
-  HeapChkMBB->addSuccessor(EnterGCMBB, {1, 100});
 
 
   ////////
-  // setup link pointers
+  // manipulate the link pointers in the setup block
   ////////
 
   // save caller's link pointer to their frame
@@ -2801,6 +2781,41 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   BuildMI(SetupMBB, DL, TII.get(X86::MOV64rr), FrameLinkReg)
     .addReg(X86::RSP)
     .setMIFlag(MachineInstr::FrameSetup);
+
+
+  if (StackSize == 0) {
+    // Then we can omit the heap test and frame allocation, falling right
+    // through to the body.
+    SetupMBB->moveBefore(&BodyMBB);
+    SetupMBB->addSuccessor(&BodyMBB);
+    return;
+  }
+
+  // We need to allocate a frame in the heap, which requires testing for
+  // heap exhaustion.
+
+  // compute the minimum bump for all but CSRs
+  StackBump = StackSize + SlotSize + WatermarkSize;
+  StackSize = StackBump;
+
+  MachineBasicBlock *HeapChkMBB = MF.CreateMachineBasicBlock();
+  MachineBasicBlock *EnterGCMBB = MF.CreateMachineBasicBlock();
+
+  for (const auto &LI : BodyMBB.liveins()) {
+    HeapChkMBB->addLiveIn(LI);
+    EnterGCMBB->addLiveIn(LI);
+  }
+
+  MF.push_front(HeapChkMBB);
+  HeapChkMBB->moveBefore(&BodyMBB);
+  SetupMBB->moveBefore(HeapChkMBB);
+
+  MF.push_back(EnterGCMBB); // this block is cold, so we push onto the end.
+
+  SetupMBB->addSuccessor(HeapChkMBB);
+
+  HeapChkMBB->addSuccessor(&BodyMBB, {99, 100});  // N/M probability
+  HeapChkMBB->addSuccessor(EnterGCMBB, {1, 100});
 
   ///////
   // check for heap exhaustion
