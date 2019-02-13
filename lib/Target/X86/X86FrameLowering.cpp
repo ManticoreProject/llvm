@@ -2754,7 +2754,8 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   const unsigned AllocPtrReg = X86::RSI;
   const unsigned FrameLinkReg = X86::RBP;
 
-  assert(StackAlign == 16 && "alignment doesn't match ABI expectations");
+  if (StackAlign != 16)
+    report_fatal_error("manti-linkstack -- non-16 byte alignment unexpected");
 
   ///////////////////////////////
 
@@ -3136,8 +3137,8 @@ void X86FrameLowering::adjustForMantiSegStack(
   bool failure = Func.getFnAttribute("manti-segstack")
                    .getValueAsString().getAsInteger(0, offset);
 
-  assert((!failure) &&
-         "manti-segstack attribute requires a signed integer argument!");
+  if (failure)
+    report_fatal_error("manti-segstack requires a signed integer argument!");
 
   int64_t LimVPOffset = offset.getSExtValue();
 
