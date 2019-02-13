@@ -2713,18 +2713,25 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   // grab the heap limit offset, and GC tag, from the attribute.
   const Function& Func = MF.getFunction();
   APInt limitOffset;
+  long long prologueAllocBytes;
   APInt tagVal;
 
   StringRef Attr = Func.getFnAttribute("manti-linkstack").getValueAsString();
-  auto Vals = Attr.split(',');
+  auto Cons1 = Attr.split(',');
+  auto Cons2 = Cons1.second.split(',');
 
-  if (Vals.second == ""
-      || Vals.first.getAsInteger(0, limitOffset)
-      || Vals.second.getAsInteger(0, tagVal))
+  if (Cons1.second == ""
+      || Cons2.second == ""
+      || Cons1.first.getAsInteger(0, limitOffset)
+      || getAsSignedInteger(Cons2.first, 0, prologueAllocBytes)
+      || Cons2.second.getAsInteger(0, tagVal))
     report_fatal_error(
-      "manti-linkstack requires two comma-separated ints: hplimit, root gc tag");
+      "manti-linkstack requires 3 comma-separated ints:\n\
+        hp limit offset, prologue alloc bytes (-1 for none), root gc tag"
+      );
 
   int64_t HPLimitOffset = limitOffset.getSExtValue();
+  int64_t ExtraHeapCheckBytes = prologueAllocBytes;
   uint64_t GCInfo = tagVal.getZExtValue();
 
   // get info
@@ -2732,18 +2739,20 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   MachineFrameInfo &MFI = MF.getFrameInfo();
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
 
-  uint64_t StackAlign = getStackAlignment();
-  uint64_t OldStackSize = MFI.getStackSize();    // Number of bytes to allocate.
-  uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
-  uint64_t SlotSize = 8;
-  uint64_t WatermarkSize = SlotSize;
-  uint64_t InitialOffset = SlotSize;  // from return address we're passed.
   uint64_t StackBump;
+  const uint64_t StackAlign = getStackAlignment();
+  const uint64_t OldStackSize = MFI.getStackSize();    // Number of bytes to allocate.
+  const uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
+  const uint64_t SlotSize = 8;
+  const uint64_t WatermarkSize = SlotSize;
+  const uint64_t InitialOffset = SlotSize;  // from return address we're passed.
+  const int64_t SPStartOffset = 16;
+  const uint64_t HeapSlopSpace = (1 << 12) - 512; // 4kb - 512 bytes
   uint64_t StackSize = OldStackSize;
 
-  unsigned VProcReg = X86::R11;
-  unsigned AllocPtrReg = X86::RSI;
-  unsigned FrameLinkReg = X86::RBP;
+  const unsigned VProcReg = X86::R11;
+  const unsigned AllocPtrReg = X86::RSI;
+  const unsigned FrameLinkReg = X86::RBP;
 
   assert(StackAlign == 16 && "alignment doesn't match ABI expectations");
 
@@ -2782,14 +2791,21 @@ void X86FrameLowering::emitMantiLinkedPrologue(
     .addReg(X86::RSP)
     .setMIFlag(MachineInstr::FrameSetup);
 
+  const bool hasNoCalls = !MFI.hasCalls();
 
-  if (StackSize == 0) {
+  // ExtraHeapCheckBytes < 0 implies that no heap test was absorbed in prologue.
+  // If ExtraHeapCheckBytes == 0, then we still need a heap test for preemption.
+  if (StackSize == 0 && ExtraHeapCheckBytes < 0 && hasNoCalls) {
     // Then we can omit the heap test and frame allocation, falling right
     // through to the body.
+
     SetupMBB->moveBefore(&BodyMBB);
     SetupMBB->addSuccessor(&BodyMBB);
     return;
   }
+
+  // clamp to valid range
+  ExtraHeapCheckBytes = ExtraHeapCheckBytes < 0 ? 0 : ExtraHeapCheckBytes;
 
   // We need to allocate a frame in the heap, which requires testing for
   // heap exhaustion.
@@ -2818,6 +2834,16 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   HeapChkMBB->addSuccessor(EnterGCMBB, {1, 100});
 
   ///////
+  // calculate the amount of heap space we need
+  //////
+
+  const uint64_t TotalHeapCheckSz = StackSize + ExtraHeapCheckBytes;
+
+  if (TotalHeapCheckSz >= HeapSlopSpace)
+    report_fatal_error("manti-linkstack -- \
+        a prologue checking for more than heap slop is not implemented yet");
+
+  ///////
   // check for heap exhaustion
   //////
 
@@ -2839,7 +2865,6 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   MachineBasicBlock::iterator BodyMBBI = BodyMBB.begin();
 
   // set rsp
-  int64_t SPStartOffset = 16;
   addRegOffset(
     BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::LEA64r), X86::RSP),
     AllocPtrReg, false, SPStartOffset)
@@ -2876,7 +2901,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   // bump heap pointer
   BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::ADD64ri32), AllocPtrReg)
     .addReg(AllocPtrReg)
-    .addImm(TotalFrameAlloc + 8)
+    .addImm(TotalFrameAlloc + SlotSize) // account for next GC header
   .setMIFlag(MachineInstr::FrameSetup);
 
 
