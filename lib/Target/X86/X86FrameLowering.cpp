@@ -2739,16 +2739,14 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   MachineFrameInfo &MFI = MF.getFrameInfo();
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
 
-  uint64_t StackBump;
   const uint64_t StackAlign = getStackAlignment();
   const uint64_t OldStackSize = MFI.getStackSize();    // Number of bytes to allocate.
   const uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
   const uint64_t SlotSize = 8;
   const uint64_t WatermarkSize = SlotSize;
-  const uint64_t InitialOffset = SlotSize;  // from return address we're passed.
   const int64_t SPStartOffset = 16;
   const uint64_t HeapSlopSpace = (1 << 12) - 512; // 4kb - 512 bytes
-  uint64_t StackSize = OldStackSize;
+  uint64_t ContentsSize = OldStackSize;
 
   const unsigned VProcReg = X86::R11;
   const unsigned AllocPtrReg = X86::RSI;
@@ -2796,7 +2794,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
 
   // ExtraHeapCheckBytes < 0 implies that no heap test was absorbed in prologue.
   // If ExtraHeapCheckBytes == 0, then we still need a heap test for preemption.
-  if (StackSize == 0 && ExtraHeapCheckBytes < 0 && hasNoCalls) {
+  if (ContentsSize == 0 && ExtraHeapCheckBytes < 0 && hasNoCalls) {
     // Then we can omit the heap test and frame allocation, falling right
     // through to the body.
 
@@ -2805,15 +2803,23 @@ void X86FrameLowering::emitMantiLinkedPrologue(
     return;
   }
 
+  ////////////
+  // Compute sizing for frame
+  ///////////
+
   // clamp to valid range
   ExtraHeapCheckBytes = ExtraHeapCheckBytes < 0 ? 0 : ExtraHeapCheckBytes;
 
-  // We need to allocate a frame in the heap, which requires testing for
-  // heap exhaustion.
+  // the watermark is part of the contents, but not the others.
+  //                          SP
+  //                          V
+  // frame ptr, return address, watermark, < contents >
+  ContentsSize += WatermarkSize;
+  uint64_t FrameSize = ContentsSize + (SlotSize * 2);
 
-  // compute the minimum bump for all but CSRs
-  StackBump = StackSize + SlotSize + WatermarkSize;
-  StackSize = StackBump;
+  ///////////
+  // Setup additional blocks
+  ///////////
 
   MachineBasicBlock *HeapChkMBB = MF.CreateMachineBasicBlock();
   MachineBasicBlock *EnterGCMBB = MF.CreateMachineBasicBlock();
@@ -2838,7 +2844,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   // calculate the amount of heap space we need
   //////
 
-  const uint64_t TotalHeapCheckSz = StackSize + ExtraHeapCheckBytes;
+  const uint64_t TotalHeapCheckSz = FrameSize + ExtraHeapCheckBytes;
 
   if (TotalHeapCheckSz >= HeapSlopSpace)
     report_fatal_error("manti-linkstack -- \
@@ -2871,12 +2877,10 @@ void X86FrameLowering::emitMantiLinkedPrologue(
     AllocPtrReg, false, SPStartOffset)
   .setMIFlag(MachineInstr::FrameSetup);
 
-  uint64_t TotalFrameAlloc = StackBump + SPStartOffset;
-
-  if (TotalFrameAlloc % SlotSize != 0)
+  if (FrameSize % SlotSize != 0)
     report_fatal_error("frame size is not a multiple of the word size!");
 
-  uint32_t TotalWordsInFrame = TotalFrameAlloc / SlotSize;
+  uint32_t WordsInFrame = FrameSize / SlotSize;
 
   // compute the Manticore heap's GC tag for the frame.
   // see header-bits.h in Manticore for the layout.
@@ -2884,7 +2888,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   uint64_t FrameGCTag = 0;
   FrameGCTag |= 1;                         // mark not a forwarding pointer
   FrameGCTag |= (3 << 1);                  // mark ID as linked-frame.
-  FrameGCTag |= (TotalWordsInFrame << 16); // mark length of object.
+  FrameGCTag |= (WordsInFrame << 16); // mark length of object.
 
   int64_t HeaderOffset = -8;
   addRegOffset(BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::MOV64mi32)),
@@ -2902,7 +2906,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   // bump heap pointer
   BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::ADD64ri32), AllocPtrReg)
     .addReg(AllocPtrReg)
-    .addImm(TotalFrameAlloc + SlotSize) // account for next GC header
+    .addImm(FrameSize + SlotSize) // account for next GC header
   .setMIFlag(MachineInstr::FrameSetup);
 
 
@@ -2912,42 +2916,13 @@ void X86FrameLowering::emitMantiLinkedPrologue(
 
   emitMantiSafepoint(MF, EnterGCMBB, HeapChkMBB, GCInfo);
 
+  // After setting the new larger contents size, all of the stack objects shift
+  // up to the top of the frame, which is what we want in this case,
+  // since the watermark is at the bottom of the frame (right under SP).
+  // In other manticore stacks, the watermark is at the top of the frame,
+  // so we would pull stuff back down.
+  MFI.setStackSize(ContentsSize);
 
-  if (StackSize != OldStackSize) {
-    // set final stack size for correct stackmap emission
-    MFI.setStackSize(StackSize);
-
-    // after setting the stack size, the offsets for all stack objects
-    // shifts up to the top for some reason, so we need to pull them back
-    // down to avoid overwriting the return address or CSR
-
-    // Loop to process fixed stack objects:
-    // for (int I = MFI.getObjectIndexBegin(); I < 0; ++I) {
-
-    // Process ordinary stack objects.
-    for (int I = 0, E = MFI.getObjectIndexEnd(); I < E; ++I) {
-      if (MFI.isDeadObjectIndex(I))
-        continue;
-
-      assert(MFI.getObjectSize(I) <= 8 && "Objects must be <= 8 bytes.");
-
-      // TODO: maybe to check that every object occupies one 8-byte slot,
-      // regardless of its alignment within said slot, we can keep track
-      // of slot boundries in this loop. Right now, 4-byte objects
-      // are shifted over in the slot:
-      //
-      //       | XXXX BBBB |
-      //       ^      ^    ^
-      //       40     44   48
-      //
-      // Thus, we want to ensure that no object occupies bytes 40-44.
-
-
-      int64_t offset = MFI.getObjectOffset(I);
-      offset -= InitialOffset;
-      MFI.setObjectOffset(I, offset);
-    }
-  }
 
 #ifdef EXPENSIVE_CHECKS
   MF.verify();
