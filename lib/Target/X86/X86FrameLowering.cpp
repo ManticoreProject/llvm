@@ -3057,7 +3057,7 @@ void X86FrameLowering::emitMantiContigPrologue(
         continue;
 
       int64_t offset = MFI.getObjectOffset(I);
-      offset -= InitialOffset;
+      offset -= WatermarkSize;
       MFI.setObjectOffset(I, offset);
     }
   }
