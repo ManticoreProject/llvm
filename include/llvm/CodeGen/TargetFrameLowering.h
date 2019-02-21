@@ -187,7 +187,7 @@ public:
     /// Emit a prologue for Manticore linked stacks.
   virtual void emitMantiLinkedPrologue(MachineFunction &MF,
                                      MachineBasicBlock &PrologueMBB) const {}
-  
+
   /// Emit an epilog for Manticore linked stacks.
   virtual void emitMantiLinkedEpilog(MachineFunction &MF,
                                      MachineBasicBlock &EpilogMBB) const {}
@@ -198,7 +198,8 @@ public:
 
   /// Emit a prologue for Manticore segmented stacks.
   virtual void adjustForMantiSegStack(MachineFunction &MF,
-                                     MachineBasicBlock &PrologueMBB) const {}
+                                     MachineBasicBlock &PrologueMBB,
+                                     bool IsResizing) const {}
 
   /// spillCalleeSavedRegisters - Issues instruction(s) to spill all callee
   /// saved registers and returns true if it isn't possible / profitable to do

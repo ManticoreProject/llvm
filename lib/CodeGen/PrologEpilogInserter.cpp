@@ -968,9 +968,10 @@ void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
   const Function& Func = Fn.getFunction();
   bool MantiContig = Func.hasFnAttribute("manti-contig");
   bool MantiSegStack = Func.hasFnAttribute("manti-segstack");
+  bool MantiResizeStack = Func.hasFnAttribute("manti-resizestack");
   bool MantiLinkStack = Func.hasFnAttribute("manti-linkstack");
 
-  if (MantiContig || MantiSegStack || MantiLinkStack) {
+  if (MantiContig || MantiSegStack || MantiLinkStack || MantiResizeStack) {
     int numSaveBlocks = 0;
     for (MachineBasicBlock *SaveBlock : SaveBlocks) {
       if (MantiLinkStack) {
@@ -981,10 +982,10 @@ void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
         // emit standard contiguous stack prologue
         TFI.emitMantiContigPrologue(Fn, *SaveBlock, MantiSegStack);
 
-        if (MantiSegStack) {
-          
+        if (MantiSegStack || MantiResizeStack) {
+
           // adjust the contiguous prologue for a segmented stack
-          TFI.adjustForMantiSegStack(Fn, *SaveBlock);
+          TFI.adjustForMantiSegStack(Fn, *SaveBlock, MantiResizeStack);
         }
       }
 
@@ -1037,7 +1038,7 @@ void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
     for (MachineBasicBlock *SaveBlock : SaveBlocks)
       TFI.adjustForHiPEPrologue(Fn, *SaveBlock);
 
-  
+
 }
 
 /// replaceFrameIndices - Replace all MO_FrameIndex operands with physical

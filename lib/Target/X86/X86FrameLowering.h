@@ -80,7 +80,7 @@ public:
 
   void emitMantiLinkedPrologue(MachineFunction &MF,
                              MachineBasicBlock &PrologueMBB) const override;
-  
+
   void emitMantiLinkedEpilog(MachineFunction &MF,
                              MachineBasicBlock &EpilogMBB) const override;
 
@@ -88,7 +88,8 @@ public:
                              MachineBasicBlock &EpilogMBB) const override;
 
   void adjustForMantiSegStack(MachineFunction &MF,
-                             MachineBasicBlock &PrologueMBB) const override;
+                             MachineBasicBlock &PrologueMBB,
+                             bool IsResizing) const override;
 
   void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
                             RegScavenger *RS = nullptr) const override;
@@ -226,7 +227,7 @@ private:
   void emitCatchRetReturnValue(MachineBasicBlock &MBB,
                                MachineBasicBlock::iterator MBBI,
                                MachineInstr *CatchRet) const;
-  
+
   void emitMantiSafepoint(MachineFunction &MF,
                           MachineBasicBlock *MBB,
                           MachineBasicBlock *After,

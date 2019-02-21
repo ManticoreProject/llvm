@@ -3101,7 +3101,7 @@ void X86FrameLowering::emitMantiContigEpilog(
 }
 
 void X86FrameLowering::adjustForMantiSegStack(
-    MachineFunction &MF, MachineBasicBlock &PrologueMBB) const {
+    MachineFunction &MF, MachineBasicBlock &PrologueMBB, bool IsResizing) const {
 
   // this adjustment is conceptually the same as adjustForSegmentedStacks,
   // however, it is customized for Manticore's runtime-system.
@@ -3109,7 +3109,9 @@ void X86FrameLowering::adjustForMantiSegStack(
   // grab the stack limit offset
   const Function& Func = MF.getFunction();
   APInt offset;
-  bool failure = Func.getFnAttribute("manti-segstack")
+  auto attrName = IsResizing ? "manti-resizestack" : "manti-segstack";
+
+  bool failure = Func.getFnAttribute(attrName)
                    .getValueAsString().getAsInteger(0, offset);
 
   if (failure)
