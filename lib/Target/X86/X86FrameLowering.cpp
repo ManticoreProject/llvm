@@ -3128,8 +3128,11 @@ void X86FrameLowering::adjustForMantiSegStack(
   StackSize = MFI.getStackSize();
 
   // Do not add anything for functions who do not need stack space
-  if (StackSize == 0)
+  if (StackSize == 0 && !MFI.hasCalls())
     return;
+
+  // we also need to ensure space for a return address to make a call.
+  StackSize += 8;
 
   MachineBasicBlock *allocMBB = MF.CreateMachineBasicBlock();
   MachineBasicBlock *checkMBB = MF.CreateMachineBasicBlock();
