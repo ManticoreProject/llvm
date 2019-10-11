@@ -421,6 +421,51 @@ def RetCC_X86_64_HHVM: CallingConv<[
                                  RAX, R10, R11, R13, R14, R15]>>
 ]>;
 
+// The JWA calling convention for x86_64. Note that this is
+// also used as the return convention in order to implement call/cc.
+// True returns are not the norm. We _never_ use the stack.
+def CC_X86_64_JWA : CallingConv<[
+  
+  // Promote i8/i16/i32 arguments to i64.
+  CCIfType<[i8, i16, i32], CCPromoteToType<i64>>,
+
+  // RSP = stack pointer
+  // RBP = frame pointer
+  // RBX, RCX = temporary.
+  
+  CCIfType<[i64],
+  CCAssignToReg<[RSI, // allocation pointer
+                 R11, // vproc pointer
+                 RDI, // environment pointer (an arg)
+                 R8,  // return continuation (an arg)
+                 R9,  // exception handler continuation (an arg)
+                 RAX, // 1st user-argument register
+                 // other user-argument registers, in order.
+                 R10,
+                 R12,
+                 R13,
+                 R14,
+                 R15,
+                 RDX
+                 ]>>,
+
+
+  // TODO(kavon): check if something breaks if the target
+  // does not support SSE registers? should add a check for that.
+
+  // Enable 6 vector registers.
+  CCIfType<[f32, f64, v16i8, v8i16, v4i32, v2i64, v4f32, v2f64],
+           CCAssignToReg<[XMM2, XMM3, 
+                          XMM4, XMM5, XMM6, XMM7]>>,
+
+// TODO(kavon): add an assertion failure saying that we couldn't find
+// enough registers for everything, and that you should reconsider
+// how many live vars you are passing between functions :)
+
+CCCustom<"CC_X86_AnyReg_Error">
+
+]>;
+
 
 defm X86_32_RegCall :
 	 X86_RegCall_base<RC_X86_32_RegCall>;
@@ -463,6 +508,9 @@ def RetCC_X86_64 : CallingConv<[
 
   // Handle HHVM calls.
   CCIfCC<"CallingConv::HHVM", CCDelegateTo<RetCC_X86_64_HHVM>>,
+
+  // Handle JWA calls.
+  CCIfCC<"CallingConv::JWA", CCDelegateTo<CC_X86_64_JWA>>,
 
   CCIfCC<"CallingConv::X86_RegCall",
           CCIfSubtarget<"isTargetWin64()",
@@ -586,6 +634,19 @@ def CC_X86_64_HHVM_C : CallingConv<[
   CCIfType<[i64], CCAssignToReg<[RBP]>>,
 
   // Otherwise it's the same as the regular C calling convention.
+  CCDelegateTo<CC_X86_64_C>
+]>;
+
+// A very simple calling convention to enable stack
+// switching when making a C call.
+def CC_X86_64_C_SHIM : CallingConv<[
+
+  // First two 64-bit arguments go in R11 and R10
+  CCIfType<[i64],
+          CCAssignToReg<[R11, R10]>>,
+
+  // Then, drop to regular SysV calling convention
+  // for everything else.
   CCDelegateTo<CC_X86_64_C>
 ]>;
 
@@ -1013,6 +1074,8 @@ def CC_X86_64 : CallingConv<[
   CCIfCC<"CallingConv::GHC", CCDelegateTo<CC_X86_64_GHC>>,
   CCIfCC<"CallingConv::HiPE", CCDelegateTo<CC_X86_64_HiPE>>,
   CCIfCC<"CallingConv::WebKit_JS", CCDelegateTo<CC_X86_64_WebKit_JS>>,
+  CCIfCC<"CallingConv::JWA", CCDelegateTo<CC_X86_64_JWA>>,
+  CCIfCC<"CallingConv::C_SHIM", CCDelegateTo<CC_X86_64_C_SHIM>>,
   CCIfCC<"CallingConv::AnyReg", CCDelegateTo<CC_X86_64_AnyReg>>,
   CCIfCC<"CallingConv::Win64", CCDelegateTo<CC_X86_Win64_C>>,
   CCIfCC<"CallingConv::X86_64_SysV", CCDelegateTo<CC_X86_64_C>>,

@@ -297,6 +297,7 @@ X86RegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   switch (CC) {
   case CallingConv::GHC:
   case CallingConv::HiPE:
+  case CallingConv::JWA:
     return CSR_NoRegs_SaveList;
   case CallingConv::AnyReg:
     if (HasAVX)
@@ -349,6 +350,7 @@ X86RegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
     if (!HasSSE)
       return CSR_Win64_NoSSE_SaveList;
     return CSR_Win64_SaveList;
+  case CallingConv::C_SHIM:
   case CallingConv::X86_64_SysV:
     if (CallsEHReturn)
       return CSR_64EHRet_SaveList;
@@ -412,6 +414,7 @@ X86RegisterInfo::getCallPreservedMask(const MachineFunction &MF,
   switch (CC) {
   case CallingConv::GHC:
   case CallingConv::HiPE:
+  case CallingConv::JWA:
     return CSR_NoRegs_RegMask;
   case CallingConv::AnyReg:
     if (HasAVX)
@@ -461,6 +464,7 @@ X86RegisterInfo::getCallPreservedMask(const MachineFunction &MF,
     break;
   case CallingConv::Win64:
     return CSR_Win64_RegMask;
+  case CallingConv::C_SHIM:
   case CallingConv::X86_64_SysV:
     return CSR_64_RegMask;
   case CallingConv::X86_INTR:
@@ -529,7 +533,7 @@ BitVector X86RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
     Reserved.set(*I);
 
   // Set the frame-pointer register and its aliases as reserved if needed.
-  if (TFI->hasFP(MF)) {
+  if (TFI->hasFP(MF) || MF.getFunction().hasFnAttribute("manti-linkstack")) {
     for (MCSubRegIterator I(X86::RBP, this, /*IncludeSelf=*/true); I.isValid();
          ++I)
       Reserved.set(*I);

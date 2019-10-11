@@ -164,6 +164,18 @@ static Optional<int> findPreviousSpillSlot(const Value *Val,
   if (const BitCastInst *Cast = dyn_cast<BitCastInst>(Val))
     return findPreviousSpillSlot(Cast->getOperand(0), Builder, LookUpDepth - 1);
 
+  // Look through addrspace casts.
+  if (const AddrSpaceCastInst *Cast = dyn_cast<AddrSpaceCastInst>(Val))
+    return findPreviousSpillSlot(Cast->getOperand(0), Builder, LookUpDepth - 1);
+
+  // Look through inttoptr casts.
+  if (const IntToPtrInst *Cast = dyn_cast<IntToPtrInst>(Val))
+    return findPreviousSpillSlot(Cast->getOperand(0), Builder, LookUpDepth - 1);
+
+  // Look through ptrtoint casts.
+  if (const PtrToIntInst *Cast = dyn_cast<PtrToIntInst>(Val))
+    return findPreviousSpillSlot(Cast->getOperand(0), Builder, LookUpDepth - 1);
+
   // Look through phi nodes
   // All incoming values should have same known stack slot, otherwise result
   // is unknown.
@@ -235,7 +247,7 @@ static void reservePreviousStackSlotForValue(const Value *IncomingValue,
     // Duplicates in input
     return;
 
-  const int LookUpDepth = 6;
+  const int LookUpDepth = 12;
   Optional<int> Index =
       findPreviousSpillSlot(IncomingValue, Builder, LookUpDepth);
   if (!Index.hasValue())

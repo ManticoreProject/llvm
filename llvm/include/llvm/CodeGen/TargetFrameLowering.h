@@ -191,6 +191,28 @@ public:
   virtual void adjustForHiPEPrologue(MachineFunction &MF,
                                      MachineBasicBlock &PrologueMBB) const {}
 
+  /// Emit a prologue for Manticore contiguous stacks.
+  virtual void emitMantiContigPrologue(MachineFunction &MF,
+                                     MachineBasicBlock &PrologueMBB,
+                                     bool IncludeSize) const {}
+
+    /// Emit a prologue for Manticore linked stacks.
+  virtual void emitMantiLinkedPrologue(MachineFunction &MF,
+                                     MachineBasicBlock &PrologueMBB) const {}
+
+  /// Emit an epilog for Manticore linked stacks.
+  virtual void emitMantiLinkedEpilog(MachineFunction &MF,
+                                     MachineBasicBlock &EpilogMBB) const {}
+
+  /// Emit an epilog for Manticore contiguous stacks.
+  virtual void emitMantiContigEpilog(MachineFunction &MF,
+                                     MachineBasicBlock &EpilogMBB) const {}
+
+  /// Emit a prologue for Manticore segmented stacks.
+  virtual void adjustForMantiSegStack(MachineFunction &MF,
+                                     MachineBasicBlock &PrologueMBB,
+                                     bool IsResizing) const {}
+
   /// spillCalleeSavedRegisters - Issues instruction(s) to spill all callee
   /// saved registers and returns true if it isn't possible / profitable to do
   /// so by issuing a series of store instructions via

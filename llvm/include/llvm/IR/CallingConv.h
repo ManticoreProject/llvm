@@ -222,6 +222,20 @@ namespace CallingConv {
     // Calling convention between AArch64 Advanced SIMD functions
     AArch64_VectorCall = 97,
 
+    /// JWA - "Jump With Arguments," a calling convention which requires the
+    /// use of registers for parameter passing. It is designed for language
+    /// implementations which do not use a stack, however, it will not warn
+    /// if there are not enough registers for a given function. The lack of
+    /// warning is needed in order to properly utilize musttail calls as
+    /// jumps because they are picky about parameters.
+    JWA = 98,
+
+    /// C_Shim is a calling convention used by Manticore to access non-variadic
+    /// C functions when using a mutable, linked frame call stack in its RTS.
+    /// It is used to switch to a contiguous, page-protected stack
+    /// in order to service the C call.
+    C_SHIM = 99,
+
     /// The highest possible calling convention ID. Must be some 2^k - 1.
     MaxID = 1023
   };

@@ -1092,6 +1092,47 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &MF) {
 void PEI::insertPrologEpilogCode(MachineFunction &MF) {
   const TargetFrameLowering &TFI = *MF.getSubtarget().getFrameLowering();
 
+  // Emit prologue/epilogue for Manticore's various stack strategies.
+  const Function& Func = Fn.getFunction();
+  bool MantiContig = Func.hasFnAttribute("manti-contig");
+  bool MantiSegStack = Func.hasFnAttribute("manti-segstack");
+  bool MantiResizeStack = Func.hasFnAttribute("manti-resizestack");
+  bool MantiLinkStack = Func.hasFnAttribute("manti-linkstack");
+
+  if (MantiContig || MantiSegStack || MantiLinkStack || MantiResizeStack) {
+    int numSaveBlocks = 0;
+    for (MachineBasicBlock *SaveBlock : SaveBlocks) {
+      if (MantiLinkStack) {
+
+        TFI.emitMantiLinkedPrologue(Fn, *SaveBlock);
+
+      } else {
+        // emit standard contiguous stack prologue
+        TFI.emitMantiContigPrologue(Fn, *SaveBlock, MantiSegStack);
+
+        if (MantiSegStack || MantiResizeStack) {
+
+          // adjust the contiguous prologue for a segmented stack
+          TFI.adjustForMantiSegStack(Fn, *SaveBlock, MantiResizeStack);
+        }
+      }
+
+      numSaveBlocks++;
+    }
+
+    // if there's more than 1, the size of the fun's stack frame increases
+    // too much
+    assert(numSaveBlocks == 1 && "unexpected number of save blocks");
+
+    for (MachineBasicBlock *RestoreBlock : RestoreBlocks)
+      if (MantiLinkStack)
+        TFI.emitMantiLinkedEpilog(Fn, *RestoreBlock);
+      else
+        TFI.emitMantiContigEpilog(Fn, *RestoreBlock);
+
+    return;
+  }
+
   // Add prologue to the function...
   for (MachineBasicBlock *SaveBlock : SaveBlocks)
     TFI.emitPrologue(MF, *SaveBlock);
