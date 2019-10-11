@@ -3,8 +3,8 @@
 
 ;; Regression testing for the C_SHIM calling convention.
 
-declare cc98 i64 @doCCall_1 (i64*, i64 (i64, i64)*, i64, i64)
-declare cc98 float @doCCall_2 (i64*, float (float, float)*, float, float)
+declare cc99 i64 @doCCall_1 (i64*, i64 (i64, i64)*, i64, i64)
+declare cc99 float @doCCall_2 (i64*, float (float, float)*, float, float)
 
 declare x86_64_sysvcc i64 @func1 (i64, i64)
 declare x86_64_sysvcc float @func2 (float, float)
@@ -17,11 +17,11 @@ define x86_64_sysvcc i64 @test1(i64* %vp, i64 %x, i64 %y, i64 %liveAfter) {
 
 ; CHECK-LABEL: test1
 ; CHECK: movq    %rcx, %rbx
-; CHECK: movq    _func1@GOTPCREL(%rip), %r10
+; CHECK: mov{{.*}}    {{.*}}func1{{.*}}, %r10{{.*}}
 ; CHECK: movq    %rdi, %r11
 ; CHECK: movq    %rsi, %rdi
 ; CHECK: movq    %rdx, %rsi
-	%rv1 = call cc98 i64 @doCCall_1(i64* %vp, i64 (i64, i64)* @func1, i64 %x, i64 %y)
+	%rv1 = call cc99 i64 @doCCall_1(i64* %vp, i64 (i64, i64)* @func1, i64 %x, i64 %y)
 
 ;; check return
 
@@ -32,9 +32,9 @@ define x86_64_sysvcc i64 @test1(i64* %vp, i64 %x, i64 %y, i64 %liveAfter) {
 }
 
 define x86_64_sysvcc float @test2(i64* %vp, float %x, float %y) {
-;; vp -> rdi, x -> xmm0, y -> xmm1 
+;; vp -> rdi, x -> xmm0, y -> xmm1
 
-;; check argument setup. 
+;; check argument setup.
 
 ;; we exclude any movement of xmm registers before
 ;; the call with this sequence of check-next's
@@ -42,12 +42,12 @@ define x86_64_sysvcc float @test2(i64* %vp, float %x, float %y) {
 ; CHECK-LABEL: test2
 ; CHECK:        pushq   %rax
 ; CHECK-NEXT:   .cfi_def_cfa_offset 16
-; CHECK-NEXT:   movq    _func2@GOTPCREL(%rip), %r10
+; CHECK-NEXT:   mov{{.*}}    {{.*}}func2{{.*}}, %r10{{.*}}
 ; CHECK-NEXT:   movq    %rdi, %r11
-; CHECK-NEXT:   callq	_doCCall_2
-; CHECK-NEXT:   addss	{{.*}}, %xmm0
+; CHECK-NEXT:   callq    {{.*}}doCCall_2
+; CHECK-NEXT:   addss    {{.*}}, %xmm0
 
-	%rv1 = call cc98 float @doCCall_2(i64* %vp, float (float, float)* @func2, float %x, float %y)
+	%rv1 = call cc99 float @doCCall_2(i64* %vp, float (float, float)* @func2, float %x, float %y)
 	%rv2 = fadd float %rv1, 1.0
 	ret float %rv2
 }

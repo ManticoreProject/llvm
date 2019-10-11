@@ -1093,7 +1093,7 @@ void PEI::insertPrologEpilogCode(MachineFunction &MF) {
   const TargetFrameLowering &TFI = *MF.getSubtarget().getFrameLowering();
 
   // Emit prologue/epilogue for Manticore's various stack strategies.
-  const Function& Func = Fn.getFunction();
+  const Function& Func = MF.getFunction();
   bool MantiContig = Func.hasFnAttribute("manti-contig");
   bool MantiSegStack = Func.hasFnAttribute("manti-segstack");
   bool MantiResizeStack = Func.hasFnAttribute("manti-resizestack");
@@ -1104,16 +1104,16 @@ void PEI::insertPrologEpilogCode(MachineFunction &MF) {
     for (MachineBasicBlock *SaveBlock : SaveBlocks) {
       if (MantiLinkStack) {
 
-        TFI.emitMantiLinkedPrologue(Fn, *SaveBlock);
+        TFI.emitMantiLinkedPrologue(MF, *SaveBlock);
 
       } else {
         // emit standard contiguous stack prologue
-        TFI.emitMantiContigPrologue(Fn, *SaveBlock, MantiSegStack);
+        TFI.emitMantiContigPrologue(MF, *SaveBlock, MantiSegStack);
 
         if (MantiSegStack || MantiResizeStack) {
 
           // adjust the contiguous prologue for a segmented stack
-          TFI.adjustForMantiSegStack(Fn, *SaveBlock, MantiResizeStack);
+          TFI.adjustForMantiSegStack(MF, *SaveBlock, MantiResizeStack);
         }
       }
 
@@ -1126,9 +1126,9 @@ void PEI::insertPrologEpilogCode(MachineFunction &MF) {
 
     for (MachineBasicBlock *RestoreBlock : RestoreBlocks)
       if (MantiLinkStack)
-        TFI.emitMantiLinkedEpilog(Fn, *RestoreBlock);
+        TFI.emitMantiLinkedEpilog(MF, *RestoreBlock);
       else
-        TFI.emitMantiContigEpilog(Fn, *RestoreBlock);
+        TFI.emitMantiContigEpilog(MF, *RestoreBlock);
 
     return;
   }

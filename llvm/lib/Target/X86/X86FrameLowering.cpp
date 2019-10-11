@@ -2978,8 +2978,9 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   .setMIFlag(MachineInstr::FrameSetup);
 
   // control falls-through to BodyMBB if the heap is not exhausted
-  BuildMI(HeapChkMBB, DL, TII.get(X86::JGE_1))
+  BuildMI(HeapChkMBB, DL, TII.get(X86::JCC_1))
     .addMBB(EnterGCMBB)
+    .addImm(X86::COND_GE)
     .setMIFlag(MachineInstr::FrameSetup);
 
 
@@ -3139,7 +3140,7 @@ void X86FrameLowering::emitMantiContigPrologue(
 
   if (StackBump) {
     // emit the bump
-    emitSPUpdate(MBB, MBBI, -(int64_t)StackBump, /*InEpilogue=*/false);
+    emitSPUpdate(MBB, MBBI, DL, -(int64_t)StackBump, /*InEpilogue=*/false);
   }
 
   if (NeedsWatermark) {
@@ -3191,6 +3192,7 @@ void X86FrameLowering::emitMantiContigEpilog(
     MachineFunction &MF, MachineBasicBlock &MBB) const {
 
   // get info
+  DebugLoc DL;    // debug loc is unknown
   MachineFrameInfo &MFI = MF.getFrameInfo();
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
   MachineBasicBlock::iterator MBBI = MBB.getFirstTerminator();
@@ -3209,7 +3211,7 @@ void X86FrameLowering::emitMantiContigEpilog(
     }
 
     // unbump
-    emitSPUpdate(MBB, MBBI, StackBump, /*InEpilogue=*/true);
+    emitSPUpdate(MBB, MBBI, DL, StackBump, /*InEpilogue=*/true);
   }
 
 
@@ -3297,7 +3299,7 @@ void X86FrameLowering::adjustForMantiSegStack(
     BuildMI(checkMBB, DL, TII.get(X86::CMP64rm)).addReg(Comparee),
     VProcReg, false, LimVPOffset);
 
-  BuildMI(checkMBB, DL, TII.get(X86::JLE_1)).addMBB(allocMBB);
+  BuildMI(checkMBB, DL, TII.get(X86::JCC_1)).addMBB(allocMBB).addImm(X86::COND_LE);
 
 
   // otherwise, we jump to allocMBB, which just calls the RTS handler
