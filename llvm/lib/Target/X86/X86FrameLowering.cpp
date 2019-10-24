@@ -2861,7 +2861,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   const uint64_t OldStackSize = MFI.getStackSize();    // Number of bytes to allocate.
   const uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
   const uint64_t SlotSize = 8;
-  const uint64_t WatermarkSize = SlotSize;
+  const uint64_t WatermarkSize = 16; // rounded up from 8 for alignment reasons.
   const int64_t SPStartOffset = 16;
   const uint64_t HeapSlopSpace = (1 << 12) - 512; // 4kb - 512 bytes
   uint64_t ContentsSize = OldStackSize;
@@ -2989,6 +2989,18 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   ////////
 
   MachineBasicBlock::iterator BodyMBBI = BodyMBB.begin();
+
+  // align the allocation pointer to a 16-byte boundary
+  // via  (r+15) & 16
+  BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::ADD64ri32), AllocPtrReg)
+    .addReg(AllocPtrReg)
+    .addImm(15)
+  .setMIFlag(MachineInstr::FrameSetup);
+
+  BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::AND64ri32), AllocPtrReg)
+    .addReg(AllocPtrReg)
+    .addImm(-16)
+  .setMIFlag(MachineInstr::FrameSetup);
 
   // set rsp
   addRegOffset(
