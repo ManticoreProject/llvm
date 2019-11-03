@@ -3072,6 +3072,16 @@ void X86FrameLowering::emitMantiContigPrologue(
   // our goal here is to add a watermark at the top of every frame upon entry
   // to support generational stack collection.
 
+  /*
+
+  high addresses                     <-->                   low addresses
+| callee-saves | frame contents | PADDING | watermark | return address |
+                                ^                     ^
+                              16-byte               16-byte
+
+    if IncludeSize is true, the PADDING will become the frame's size
+  */
+
   // pre-conditions
   assert(&(*MF.begin()) == &MBB && "Shrink-wrapping not supported yet");
   assert(hasFP(MF) == false && "Frame-pointer elimination is required.");
@@ -3083,51 +3093,35 @@ void X86FrameLowering::emitMantiContigPrologue(
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
   MachineBasicBlock::iterator MBBI = MBB.begin();
 
-  uint64_t StackAlign = getStackAlignment();
+  uint64_t ReportedStackAlign = getStackAlignment();
+  const uint64_t StackAlign = 16;
   uint64_t OldStackSize = MFI.getStackSize();    // Number of bytes to allocate.
   uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
-  uint64_t SlotSize = 8;
-  uint64_t WatermarkSize = SlotSize;
-  uint64_t InitialOffset = SlotSize;  // from return address we're passed.
+  const uint64_t SlotSize = 8;
+  uint64_t WatermarkSize = 1*StackAlign;
   uint64_t StackBump;
   uint64_t StackSize = OldStackSize;
 
-  assert(StackAlign == 16 && "alignment doesn't match ABI expectations");
+  if (ReportedStackAlign != StackAlign)
+    report_fatal_error("alignment doesn't match ABI expectations");
 
-  bool NeedsWatermark = false;
+  bool NeedsWatermark = !(MFI.hasCalls());
+  if (!NeedsWatermark)
+    WatermarkSize = 0;
 
-  if (!(MFI.hasCalls())) {
-    // it's a leaf, so no chance of GC (thus no watermark),
-    // nor do we need a particular stack alignment.
+  StackBump = StackSize - CalleeSaveSize;
 
-    StackBump = StackSize - CalleeSaveSize;
+  if (NeedsWatermark || StackBump > 0) {
+    // we start off at this offset when we perform the bump, since the
+    // following items are either starting conditions or not part of
+    // the memory allocated by the bump.
+    uint64_t OtherOffsets = SlotSize // return address offset
+                          + CalleeSaveSize   // callee saves are pushed
+                          + WatermarkSize; // after the contents, the watermark
 
-    if (StackBump > 0) {
-      // still need space for spills though
-      StackBump += SlotSize;
-      StackSize = StackBump + CalleeSaveSize;
-    }
+    StackBump += (StackBump + OtherOffsets) % StackAlign; // align.
 
-  } else {
-
-    NeedsWatermark = true;
-
-    if (IncludeSize) {
-      WatermarkSize += SlotSize;
-    }
-
-    // compute the minimum bump for all but CSRs
-    StackBump = (StackSize - CalleeSaveSize) + SlotSize + WatermarkSize;
-
-    // add alignment to the bump, including CSRs and the initial SP alignment
-    // in the calculation. this is the final bump point.
-    StackBump += (StackBump + CalleeSaveSize + InitialOffset) % StackAlign;
-
-    StackSize = StackBump + CalleeSaveSize;
-
-    // now, take away the watermark size after align,
-    // because we're going to use push instead of mov below.
-    StackBump -= WatermarkSize;
+    StackSize = StackBump + CalleeSaveSize + WatermarkSize;
   }
 
   // move MBII past the callee-saves, if any
