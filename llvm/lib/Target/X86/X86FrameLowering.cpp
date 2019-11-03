@@ -2861,7 +2861,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   const uint64_t OldStackSize = MFI.getStackSize();    // Number of bytes to allocate.
   const uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
   const uint64_t SlotSize = 8;
-  const uint64_t WatermarkSize = SlotSize;
+  const uint64_t WatermarkSize = 1*StackAlign; // to get us proper alignment.
   const int64_t SPStartOffset = 16;
   const uint64_t HeapSlopSpace = (1 << 12) - 512; // 4kb - 512 bytes
   uint64_t ContentsSize = OldStackSize;
@@ -2871,7 +2871,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   const unsigned FrameLinkReg = X86::RBP;
 
   if (StackAlign != 16)
-    report_fatal_error("manti-linkstack -- non-16 byte alignment unexpected");
+    report_fatal_error("manti-linkstack -- 16 byte alignment required");
 
   ///////////////////////////////
 
@@ -2931,7 +2931,7 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   // the watermark is part of the contents, but not the others.
   //                          SP
   //                          V
-  // frame ptr, return address, watermark, < contents >
+  // frame ptr, return address, watermark + padding, < contents >
   ContentsSize += WatermarkSize;
   uint64_t FrameSize = ContentsSize + (SlotSize * 2);
 
@@ -2989,6 +2989,27 @@ void X86FrameLowering::emitMantiLinkedPrologue(
   ////////
 
   MachineBasicBlock::iterator BodyMBBI = BodyMBB.begin();
+
+  // the overall frame's requirements look like this
+  //
+  // low                                    <-->
+  // [ FRAME TAG | link ptr | return addr | watermark | PADDING | contents ]
+  //             ^                                              ^
+  //         ptr to frame                                     16-byte
+  //
+
+  // align the ptr to the frame on a 16-byte boundary
+  // via  (r+(align-1)) & align
+  BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::ADD64ri32), AllocPtrReg)
+    .addReg(AllocPtrReg)
+    .addImm(StackAlign-1)
+  .setMIFlag(MachineInstr::FrameSetup);
+
+  BuildMI(BodyMBB, BodyMBBI, DL, TII.get(X86::AND64ri32), AllocPtrReg)
+    .addReg(AllocPtrReg)
+    .addImm(-StackAlign)
+  .setMIFlag(MachineInstr::FrameSetup);
+
 
   // set rsp
   addRegOffset(
