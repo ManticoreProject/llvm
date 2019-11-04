@@ -3119,7 +3119,7 @@ void X86FrameLowering::emitMantiContigPrologue(
   uint64_t OldStackSize = MFI.getStackSize();    // Number of bytes to allocate.
   uint64_t CalleeSaveSize = X86FI->getCalleeSavedFrameSize(); // callee save area size
   const uint64_t SlotSize = 8;
-  uint64_t WatermarkSize = 1*StackAlign;
+  uint64_t MetadataSize = 0;
   uint64_t StackBump;
   uint64_t StackSize = OldStackSize;
 
@@ -3127,22 +3127,31 @@ void X86FrameLowering::emitMantiContigPrologue(
     report_fatal_error("alignment doesn't match ABI expectations");
 
   bool NeedsWatermark = MFI.hasCalls();
-  if (!NeedsWatermark)
-    WatermarkSize = 0;
+
+  if (NeedsWatermark) {
+    MetadataSize += SlotSize;
+    if (IncludeSize)
+      MetadataSize += SlotSize;
+  }
 
   StackBump = StackSize - CalleeSaveSize;
 
-  if (NeedsWatermark || StackBump > 0) {
+  if (MetadataSize > 0 || StackBump > 0) {
     // we start off at this offset when we perform the bump, since the
     // following items are either starting conditions or not part of
     // the memory allocated by the bump.
-    uint64_t OtherOffsets = SlotSize // return address offset
-                          + CalleeSaveSize   // callee saves are pushed
-                          + WatermarkSize; // after the contents, the watermark
+    uint64_t PreContentsOffsets = SlotSize // return address offset
+                          + CalleeSaveSize;   // callee saves
 
-    StackBump += (StackBump + OtherOffsets) % StackAlign; // align.
+    StackBump += (StackBump + PreContentsOffsets) % StackAlign; // align contents
 
-    StackSize = StackBump + CalleeSaveSize + WatermarkSize;
+    // the metadata follows the contents, and must end on a 16-byte boundary too.
+    // so we must calculate the padding needed between contents and metadata
+    uint64_t Padding = MetadataSize % StackAlign;
+
+    StackBump += Padding; // add extra padding to finalize the bump
+
+    StackSize = StackBump + CalleeSaveSize + MetadataSize;
   }
 
   // move MBII past the callee-saves, if any
@@ -3158,8 +3167,9 @@ void X86FrameLowering::emitMantiContigPrologue(
     emitSPUpdate(MBB, MBBI, DL, -(int64_t)StackBump, /*InEpilogue=*/false);
   }
 
+  // The metadata items in the stack frame are pushed into the frame past
+  // the contents, hence why they were not included in the StackBump.
   if (NeedsWatermark) {
-
     if (IncludeSize) {
       // push the frame's size
       BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64i32))
@@ -3168,7 +3178,6 @@ void X86FrameLowering::emitMantiContigPrologue(
     }
 
     // push the watermark to the end of the frame.
-    // This will leave SP correctly aligned whether we emitted a bump or not.
     BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64i32))
           .addImm(0)
           .setMIFlag(MachineInstr::FrameSetup);
@@ -3177,34 +3186,16 @@ void X86FrameLowering::emitMantiContigPrologue(
   if (StackSize != OldStackSize) {
     // set final stack size for correct stackmap emission
     MFI.setStackSize(StackSize);
-
-    // after setting the stack size, the offsets for all stack objects
-    // shifts up to the top for some reason, so we need to pull them back
-    // down to avoid overwriting the return address or CSR
-
-    // Loop to process fixed stack objects:
-    // for (int I = MFI.getObjectIndexBegin(); I < 0; ++I) {
-
-    // Process ordinary stack objects.
-    for (int I = 0, E = MFI.getObjectIndexEnd(); I < E; ++I) {
-      if (MFI.isDeadObjectIndex(I))
-        continue;
-
-      int64_t offset = MFI.getObjectOffset(I);
-      offset -= SlotSize;
-      MFI.setObjectOffset(I, offset);
-    }
   }
 
   // Debugging
   // errs() << "function = " << MF.getName()
-  //        << ", stack size = " << StackSize
+  //        << ",\tstack size = " << StackSize
   //        << ", rsp bump = " << StackBump
+  //        << ", csr bytes = " << CalleeSaveSize
   //        << ", watermark = " << NeedsWatermark
   //        << ", includesSize = " << IncludeSize
   //        << "\n";
-
-
 
 #ifdef EXPENSIVE_CHECKS
   MF.verify();
