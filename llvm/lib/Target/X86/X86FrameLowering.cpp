@@ -3126,7 +3126,7 @@ void X86FrameLowering::emitMantiContigPrologue(
   if (ReportedStackAlign != StackAlign)
     report_fatal_error("alignment doesn't match ABI expectations");
 
-  bool NeedsWatermark = !(MFI.hasCalls());
+  bool NeedsWatermark = MFI.hasCalls();
   if (!NeedsWatermark)
     WatermarkSize = 0;
 
@@ -3195,6 +3195,14 @@ void X86FrameLowering::emitMantiContigPrologue(
       MFI.setObjectOffset(I, offset);
     }
   }
+
+  // Debugging
+  // errs() << "function = " << MF.getName()
+  //        << ", stack size = " << StackSize
+  //        << ", rsp bump = " << StackBump
+  //        << ", watermark = " << NeedsWatermark
+  //        << ", includesSize = " << IncludeSize
+  //        << "\n";
 
 
 
